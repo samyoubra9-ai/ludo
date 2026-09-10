@@ -7,6 +7,7 @@ export interface Player {
   name: string
   isHuman: boolean
   coins: number
+  out?: boolean
 }
 
 export type TokenLoc =

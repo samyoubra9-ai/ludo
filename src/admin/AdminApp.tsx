@@ -17,6 +17,7 @@ import {
   rejectCenterApp,
   saveToken,
   setAgentFrozen,
+  deleteAgent,
   lookupAdminWallet,
   creditWallet,
   listGrants,
@@ -237,6 +238,20 @@ export function AdminApp() {
               setError(err instanceof Error ? err.message : 'Action impossible.')
             }
           }}
+          onDelete={async (id, name) => {
+            if (!window.confirm(`Supprimer le centre « ${name} » ? Il ne pourra plus ouvrir /caisse. Son compte Ludo n’est pas effacé.`)) {
+              return
+            }
+            setError('')
+            setNotice('')
+            try {
+              const result = await deleteAgent(token, id)
+              await refresh()
+              setNotice(`Centre ${result.name} supprimé.`)
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'Suppression impossible.')
+            }
+          }}
           onApproveApp={async (id) => {
             setBusy(true)
             setError('')
@@ -397,6 +412,7 @@ function Dashboard({
   onRefresh,
   onCreate,
   onFreeze,
+  onDelete,
   onApproveApp,
   onRejectApp,
   onLogout,
@@ -415,6 +431,7 @@ function Dashboard({
   onRefresh: () => Promise<void>
   onCreate: (payload: { name: string; address: string; password: string }) => Promise<void>
   onFreeze: (id: number, freeze: boolean) => Promise<void>
+  onDelete: (id: number, name: string) => Promise<void>
   onApproveApp: (id: number) => Promise<void>
   onRejectApp: (id: number) => Promise<void>
   onLogout: () => Promise<void>
@@ -488,8 +505,10 @@ function Dashboard({
           {page === 'overview' ? (
             <Overview agents={agents} overview={overview} onPage={onPage} />
           ) : null}
-          {page === 'credit' ? <Credit token={token} /> : null}
-          {page === 'kiosks' ? <KioskTable agents={agents} onFreeze={onFreeze} onPage={onPage} /> : null}
+          {page === 'credit' ? <Credit token={token} agents={agents} /> : null}
+          {page === 'kiosks' ? (
+            <KioskTable agents={agents} onFreeze={onFreeze} onDelete={onDelete} onPage={onPage} />
+          ) : null}
           {page === 'apps' ? (
             <Applications apps={apps} busy={busy} onApprove={onApproveApp} onReject={onRejectApp} />
           ) : null}
@@ -502,7 +521,7 @@ function Dashboard({
   )
 }
 
-function Credit({ token }: { token: string }) {
+function Credit({ token, agents }: { token: string; agents: DeskAgent[] }) {
   const [rawId, setRawId] = useState('')
   const [amount, setAmount] = useState('')
   const [note, setNote] = useState('')
@@ -513,6 +532,10 @@ function Credit({ token }: { token: string }) {
   const [busy, setBusy] = useState(false)
   const coins = Math.floor(Number(amount))
   const amountOk = Number.isInteger(coins) && coins > 0 && coins <= 1_000_000
+  const centres = useMemo(
+    () => [...agents].sort((a, b) => a.name.localeCompare(b.name, 'fr')),
+    [agents],
+  )
 
   const refreshGrants = async () => {
     const next = await listGrants(token)
@@ -544,6 +567,18 @@ function Credit({ token }: { token: string }) {
     setBusy(false)
   }
 
+  useEffect(() => {
+    const open = () => {
+      const q = new URLSearchParams(window.location.hash.split('?')[1] || '')
+      const preset = q.get('a')
+      if (preset) void find(preset)
+    }
+    open()
+    window.addEventListener('hashchange', open)
+    return () => window.removeEventListener('hashchange', open)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token])
+
   const send = async () => {
     if (!wallet || !amountOk) return
     setBusy(true)
@@ -568,9 +603,9 @@ function Credit({ token }: { token: string }) {
     <>
       <div className="dash-form-wrap">
         <ol className="dash-steps">
-          <li>Colle l’ID 0x… d’un joueur ou d’un centre flexy (le compte doit déjà exister dans Ludo).</li>
+          <li>Clique un centre enregistré pour l’alimenter. Pas besoin de recoller son ID.</li>
+          <li>Pour un joueur, colle encore l’ID 0x…</li>
           <li>Les LUDO sont crédités tout de suite. Ça ne sort pas du stock d’une caisse.</li>
-          <li>Sers-t’en pour restocker un centre ou dépanner un joueur.</li>
         </ol>
         <form
           className="dash-panel dash-form"
@@ -579,7 +614,26 @@ function Credit({ token }: { token: string }) {
             void find()
           }}
         >
-          <h2>Compte</h2>
+          <h2>Centres enregistrés</h2>
+          {centres.length === 0 ? (
+            <p className="dash-empty-line">Aucun centre pour l’instant. Valide une demande ou ouvre un comptoir.</p>
+          ) : (
+            <div className="pills pills--stakes desk__pills">
+              {centres.map((agent) => (
+                <button
+                  key={agent.id}
+                  type="button"
+                  className={wallet?.address === agent.address ? 'pill is-on' : 'pill'}
+                  disabled={busy}
+                  onClick={() => void find(agent.address)}
+                >
+                  {agent.name}
+                  <small className="dash-muted"> {formatLudo(agent.coins)}</small>
+                </button>
+              ))}
+            </div>
+          )}
+          <h2>Ou un joueur</h2>
           <label className="field">
             <span>ID joueur</span>
             <input
@@ -844,10 +898,12 @@ function Profit({
 function KioskTable({
   agents,
   onFreeze,
+  onDelete,
   onPage,
 }: {
   agents: DeskAgent[]
   onFreeze: (id: number, freeze: boolean) => Promise<void>
+  onDelete: (id: number, name: string) => Promise<void>
   onPage: (page: Page) => void
 }) {
   const [query, setQuery] = useState('')
@@ -934,8 +990,20 @@ function KioskTable({
                     </span>
                   </td>
                   <td className="dash-table__act">
+                    <button
+                      type="button"
+                      className="dash-ghost"
+                      onClick={() => {
+                        window.location.hash = `credit?a=${agent.address}`
+                      }}
+                    >
+                      Alimenter
+                    </button>
                     <button type="button" className="dash-ghost" onClick={() => void onFreeze(agent.id, agent.status === 'active')}>
                       {agent.status === 'active' ? 'Geler' : 'Dégeler'}
+                    </button>
+                    <button type="button" className="dash-ghost" onClick={() => void onDelete(agent.id, agent.name)}>
+                      Supprimer
                     </button>
                   </td>
                 </tr>

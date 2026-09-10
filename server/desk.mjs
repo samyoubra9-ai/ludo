@@ -409,6 +409,16 @@ export async function handleDesk(req, res, { json, readBody, pathOf, fail, beare
       return true
     }
 
+    const drop = path.match(/^\/api\/admin\/agents\/(\d+)\/delete$/)
+    if (req.method === 'POST' && drop) {
+      try {
+        json(res, 200, await deleteAgent(Number(drop[1])))
+      } catch (error) {
+        fail(res, error)
+      }
+      return true
+    }
+
     if (req.method === 'GET' && path === '/api/admin/center-apps') {
       json(res, 200, { apps: await listCenterApps() })
       return true
@@ -575,6 +585,18 @@ async function createAgent(body) {
     )
     .get(name, address, hashPassword(password), nowIso())
   return { agent: await publicAgent(row) }
+}
+
+async function deleteAgent(id) {
+  const row = await db.prepare('SELECT id, name, address FROM agents WHERE id = ?').get(id)
+  if (!row) throw Object.assign(new Error('Centre introuvable.'), { status: 404 })
+  await tx(async () => {
+    await db.prepare('UPDATE wallets SET kiosk_id = NULL WHERE kiosk_id = ?').run(id)
+    await db.prepare('DELETE FROM kiosk_ops WHERE agent_id = ?').run(id)
+    await db.prepare('DELETE FROM agent_sessions WHERE agent_id = ?').run(id)
+    await db.prepare('DELETE FROM agents WHERE id = ?').run(id)
+  })
+  return { ok: true, name: row.name }
 }
 
 export async function pendingCenterApp(address) {

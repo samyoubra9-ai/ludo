@@ -16,6 +16,7 @@ dist-ssr
 *.local
 .env
 ludo.json
+id.json
 *-keypair.json
 
 # Editor directories and files

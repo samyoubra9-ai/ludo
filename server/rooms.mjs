@@ -9,6 +9,7 @@ import {
   currentPlayer,
   pickBotMove,
   rollDie,
+  skipOutPlayers,
 } from './ludo.mjs'
 import { isAllowedStake, rakeOf, winnerPayout } from './economy.mjs'
 import { bus } from './bus.mjs'
@@ -27,10 +28,11 @@ const LOBBY_TTL_MS = 45 * 60 * 1000
 const ENDED_TTL_MS = 2 * 60 * 1000
 const ONLINE_MS = 8 * 1000
 const DISCONNECT_GRACE_MS = 25 * 1000
-const FORFEIT_GRACE_MS = 15 * 1000
+const FORFEIT_GRACE_MS = 20 * 1000
 const TURN_MS = 15 * 1000
 const BOT_DELAY_MS = 700
 const ROLL_DELAY_MS = 720
+const MATCH_COUNTDOWN_MS = 3000
 
 async function persist(room, { silent = false } = {}) {
   if (!silent) {
@@ -110,15 +112,20 @@ async function settleHuman(address, matchId, won, pot) {
 }
 
 function emptySeat(color) {
-  return { color, name: 'Libre', address: null, kind: 'empty', lastSeen: 0, botPlay: false, forfeited: false }
+  return { color, name: 'Libre', address: null, kind: 'empty', lastSeen: 0, botPlay: false, forfeited: false, quitAt: 0 }
 }
 
 function humanSeat(color, name, address) {
-  return { color, name, address, kind: 'human', lastSeen: Date.now(), botPlay: false, forfeited: false }
+  return { color, name, address, kind: 'human', lastSeen: Date.now(), botPlay: false, forfeited: false, quitAt: 0 }
+}
+
+function isLeaving(seat) {
+  return Boolean(seat?.quitAt) && !seat.forfeited
 }
 
 function publicSeat(seat) {
-  const online = seat.kind === 'human' && !seat.forfeited && Date.now() - (seat.lastSeen || 0) < ONLINE_MS
+  const online =
+    seat.kind === 'human' && !seat.forfeited && !isLeaving(seat) && Date.now() - (seat.lastSeen || 0) < ONLINE_MS
   return {
     color: seat.color,
     name: seat.name,
@@ -127,6 +134,7 @@ function publicSeat(seat) {
     online: seat.kind === 'human' ? online : false,
     botPlay: Boolean(seat.botPlay),
     forfeited: Boolean(seat.forfeited),
+    leaving: isLeaving(seat),
   }
 }
 
@@ -135,7 +143,11 @@ function humanCount(room) {
 }
 
 function activeHumans(room) {
-  return room.seats.filter((s) => s.kind === 'human' && s.address && !s.forfeited)
+  return room.seats.filter((s) => s.kind === 'human' && s.address && !s.forfeited && !isLeaving(s))
+}
+
+function leavingSeats(room) {
+  return room.seats.filter((s) => s.kind === 'human' && isLeaving(s))
 }
 
 export async function snapshot(room, address, opts = {}) {
@@ -147,7 +159,16 @@ export async function snapshot(room, address, opts = {}) {
     : null
   if (room.status === 'playing' && room.forfeitWinAt) {
     const secs = Math.max(1, Math.ceil((room.forfeitWinAt - Date.now()) / 1000))
-    notice = `Adversaire a quitté. Forfait dans ${secs} s si tu restes. Si tu quittes aussi, personne ne gagne.`
+    const names = leavingSeats(room)
+      .map((s) => s.name)
+      .join(', ')
+    if (isLeaving(you)) {
+      notice = `Tu as ${secs} s pour revenir, sinon tu perds ta mise.`
+    } else if (names) {
+      notice = `${names} a quitté. Retour possible ${secs} s. Si tu quittes aussi, le pot va à la maison.`
+    } else {
+      notice = `Un joueur a quitté. Forfait dans ${secs} s.`
+    }
   }
   return {
     code: room.code,
@@ -165,6 +186,7 @@ export async function snapshot(room, address, opts = {}) {
     notice,
     forfeitWinAt: room.forfeitWinAt || 0,
     turnDueAt: room.turnDueAt || 0,
+    startAt: room.startAt || 0,
     kind: room.kind === 'match' ? 'match' : 'private',
   }
 }
@@ -195,7 +217,7 @@ function applyTouch(room, address) {
   const seat = room.seats.find((s) => s.address === address && s.kind === 'human')
   if (!seat || seat.forfeited) return { changed: false, reclaimed: false }
   seat.lastSeen = Date.now()
-  if (!seat.botPlay || !room.game) return { changed: true, reclaimed: false }
+  if (isLeaving(seat) || !seat.botPlay || !room.game) return { changed: true, reclaimed: false }
   seat.botPlay = false
   room.game = {
     ...room.game,
@@ -203,6 +225,23 @@ function applyTouch(room, address) {
     message: `${seat.name} est de retour.`,
   }
   return { changed: true, reclaimed: true }
+}
+
+function reclaimQuit(room, seat) {
+  if (!seat || seat.forfeited || !isLeaving(seat)) return false
+  if (room.forfeitWinAt && Date.now() >= room.forfeitWinAt) return false
+  seat.quitAt = 0
+  seat.botPlay = false
+  seat.lastSeen = Date.now()
+  setPlayerHuman(room, seat.color, true)
+  if (!leavingSeats(room).length) room.forfeitWinAt = 0
+  if (room.game) {
+    room.game = {
+      ...room.game,
+      message: `${seat.name} est de retour.`,
+    }
+  }
+  return true
 }
 
 export async function touchSeat(roomOrCode, address) {
@@ -255,6 +294,7 @@ export async function createRoom({ address, name, color, count, stake, kind = 'p
       touched: Date.now(),
       forfeitWinAt: 0,
       turnDueAt: 0,
+      startAt: 0,
       kind: kind === 'match' ? 'match' : 'private',
     }
     if (await createRoomExclusive(room)) return room
@@ -312,9 +352,14 @@ export async function joinRoom({ code, address, name, color }) {
       }
       const renamed = Boolean(name && already.name !== name)
       if (renamed) already.name = name
+      const wasLeaving = isLeaving(already)
+      const cameBack = reclaimQuit(room, already)
+      if (wasLeaving && !cameBack) {
+        throw Object.assign(new Error('Le délai pour revenir est terminé.'), { status: 400 })
+      }
       const { reclaimed } = applyTouch(room, address)
-      if (reclaimed) armActor(room)
-      if (renamed || reclaimed) await persist(room)
+      if ((cameBack || reclaimed) && !room.forfeitWinAt) armActor(room)
+      if (renamed || cameBack || reclaimed) await persist(room)
       else await persist(room, { silent: true })
       return room
     }
@@ -364,6 +409,7 @@ export async function leaveRoom({ code, address }) {
     }
 
     room.seats = room.seats.map((s) => (s.address === address ? emptySeat(s.color) : s))
+    room.startAt = 0
     const remaining = room.seats.find((s) => s.kind === 'human' && s.address)
     if (!remaining) {
       await deleteRoom(room.code)
@@ -389,6 +435,7 @@ function fillBots(room) {
       lastSeen: 0,
       botPlay: false,
       forfeited: false,
+      quitAt: 0,
     }
   })
 }
@@ -438,21 +485,45 @@ async function launchGame(room, { fillEmpty = true } = {}) {
   room.rollDueAt = 0
   room.botDueAt = 0
   room.forfeitWinAt = 0
+  room.startAt = 0
   for (const seat of room.seats) {
-    if (seat.kind === 'human') seat.lastSeen = Date.now()
+    if (seat.kind === 'human') {
+      seat.lastSeen = Date.now()
+      seat.quitAt = 0
+      seat.forfeited = false
+      seat.botPlay = false
+    }
   }
   armActor(room)
 }
 
 async function maybeAutoStart(room) {
-  if (room.kind !== 'match' || room.status !== 'lobby') return
+  if (room.kind !== 'match' || room.status !== 'lobby') return false
   await kickBrokeHumans(room)
-  if (humanCount(room) < room.count) return
-  await launchGame(room, { fillEmpty: false })
+  if (humanCount(room) < room.count) {
+    if (!room.startAt) return false
+    room.startAt = 0
+    return true
+  }
+  const now = Date.now()
+  if (!room.startAt) {
+    room.startAt = now + MATCH_COUNTDOWN_MS
+    return true
+  }
+  if (now < room.startAt) return false
+  try {
+    await launchGame(room, { fillEmpty: false })
+    return true
+  } catch (error) {
+    console.error(error)
+    room.startAt = 0
+    await kickBrokeHumans(room)
+    return true
+  }
 }
 
 function handToBot(room, seat) {
-  if (seat.kind !== 'human' || seat.botPlay || seat.forfeited || !room.game) return false
+  if (seat.kind !== 'human' || seat.botPlay || seat.forfeited || isLeaving(seat) || !room.game) return false
   seat.botPlay = true
   room.game = {
     ...room.game,
@@ -467,7 +538,7 @@ function syncDisconnects(room) {
   const now = Date.now()
   let changed = false
   for (const seat of room.seats) {
-    if (seat.kind !== 'human' || !seat.address || seat.botPlay || seat.forfeited) continue
+    if (seat.kind !== 'human' || !seat.address || seat.botPlay || seat.forfeited || isLeaving(seat)) continue
     if (now - (seat.lastSeen || 0) < DISCONNECT_GRACE_MS) continue
     if (handToBot(room, seat)) changed = true
   }
@@ -487,6 +558,14 @@ function setPlayerHuman(room, color, isHuman) {
   room.game = {
     ...room.game,
     players: room.game.players.map((p) => (p.color === color ? { ...p, isHuman } : p)),
+  }
+}
+
+function setPlayerOut(room, color, out) {
+  if (!room.game) return
+  room.game = {
+    ...room.game,
+    players: room.game.players.map((p) => (p.color === color ? { ...p, out } : p)),
   }
 }
 
@@ -535,38 +614,58 @@ async function awardForfeitWin(room) {
 
 async function applyQuit(room, address) {
   const seat = room.seats.find((s) => s.address === address && s.kind === 'human')
-  if (!seat || seat.forfeited) return false
-  seat.forfeited = true
+  if (!seat || seat.forfeited || isLeaving(seat)) return false
+  seat.quitAt = Date.now()
   seat.botPlay = false
-  setPlayerHuman(room, seat.color, false)
+  pausePlay(room)
+  room.forfeitWinAt = Date.now() + FORFEIT_GRACE_MS
+  const secs = Math.max(1, Math.ceil((room.forfeitWinAt - Date.now()) / 1000))
+  if (room.game) {
+    room.game = {
+      ...room.game,
+      message: `${seat.name} a quitté. ${secs} s pour revenir.`,
+    }
+  }
+  return true
+}
 
+async function resolveQuitTimer(room) {
+  if (room.status !== 'playing' || room.game?.winner) {
+    room.forfeitWinAt = 0
+    return
+  }
+  const leavers = leavingSeats(room)
+  for (const seat of leavers) {
+    seat.forfeited = true
+    seat.quitAt = 0
+    seat.botPlay = false
+    setPlayerOut(room, seat.color, true)
+  }
+  room.forfeitWinAt = 0
+  if (!leavers.length) {
+    await awardForfeitWin(room)
+    return
+  }
   const left = activeHumans(room)
+  const inPlay = room.game?.players.filter((p) => !p.out) ?? []
   if (left.length === 0) {
     await settleAbandoned(room)
-    return true
+    return
   }
-  if (left.length === 1) {
-    pausePlay(room)
-    room.forfeitWinAt = Date.now() + FORFEIT_GRACE_MS
-    if (room.game) {
-      room.game = {
-        ...room.game,
-        message: `${seat.name} a quitté. Forfait dans 15 s si tu restes.`,
-      }
-    }
-    return true
+  if (inPlay.length <= 1) {
+    await awardForfeitWin(room)
+    return
   }
-
-  room.forfeitWinAt = 0
-    if (room.game) {
-      room.game = {
-        ...room.game,
-        message: `${seat.name} a quitté. Un bot joue à sa place.`,
-      }
-    }
-    armActor(room)
-    return true
+  if (room.game) {
+    const names = leavers.map((s) => s.name).join(', ')
+    const note =
+      leavers.length > 1
+        ? `${names} ne sont pas revenus. Leurs mises restent au pot. La partie continue.`
+        : `${names} n’est pas revenu. Sa mise reste au pot. La partie continue.`
+    room.game = skipOutPlayers({ ...room.game, message: note }, note)
   }
+  armActor(room)
+}
 
 async function settleRoom(room) {
   if (!room.game?.winner || !room.matchId) return
@@ -575,7 +674,12 @@ async function settleRoom(room) {
   for (const seat of room.seats) {
     if (seat.kind !== 'human' || !seat.address) continue
     const matchId = `${room.matchId}:${seat.address}`
-    const paid = await settleHuman(seat.address, matchId, seat.color === winner.color, pot)
+    const paid = await settleHuman(
+      seat.address,
+      matchId,
+      Boolean(winner) && seat.color === winner.color && !seat.forfeited && !winner.out,
+      pot,
+    )
     const player = room.game.players.find((p) => p.color === seat.color)
     if (player) player.coins = paid.coins
   }
@@ -613,6 +717,7 @@ function armTurn(room) {
 }
 
 function armActor(room) {
+  if (room.game && !room.forfeitWinAt) room.game = skipOutPlayers(room.game)
   armBot(room)
   armTurn(room)
 }
@@ -718,6 +823,7 @@ export async function roomRoll({ code, address }) {
     const seat = room.seats.find((s) => s.address === address)
     if (!seat) throw Object.assign(new Error('Tu n’es pas dans cette salle.'), { status: 403 })
     if (seat.forfeited) throw Object.assign(new Error('Tu as quitté cette partie.'), { status: 403 })
+    if (isLeaving(seat)) throw Object.assign(new Error('Tu as quitté. Reviens avant la fin du délai.'), { status: 403 })
     if (room.forfeitWinAt) {
       throw Object.assign(new Error('En attente de forfait.'), { status: 400 })
     }
@@ -747,7 +853,7 @@ export async function startRoom({ code, address }) {
       if (humanCount(room) < room.count) {
         throw Object.assign(new Error('Le matchmaking attend encore des joueurs.'), { status: 400 })
       }
-      await launchGame(room, { fillEmpty: false })
+      await maybeAutoStart(room)
       await persist(room)
       return room
     }
@@ -773,6 +879,7 @@ export async function roomMove({ code, address, tokenId }) {
     const seat = room.seats.find((s) => s.address === address)
     if (!seat) throw Object.assign(new Error('Tu n’es pas dans cette salle.'), { status: 403 })
     if (seat.forfeited) throw Object.assign(new Error('Tu as quitté cette partie.'), { status: 403 })
+    if (isLeaving(seat)) throw Object.assign(new Error('Tu as quitté. Reviens avant la fin du délai.'), { status: 403 })
     if (room.forfeitWinAt) {
       throw Object.assign(new Error('En attente de forfait.'), { status: 400 })
     }
@@ -793,6 +900,7 @@ const lastDiscoCheck = new Map()
 
 function needsTick(room, now) {
   if (!room) return false
+  if (room.startAt && room.status === 'lobby' && now >= room.startAt) return true
   if (room.forfeitWinAt && now >= room.forfeitWinAt) return true
   if (room.turnDueAt && now >= room.turnDueAt) return true
   if (room.rollDueAt && now >= room.rollDueAt) return true
@@ -817,9 +925,8 @@ async function tickRoom(code) {
     let dirty = false
 
     const age = now - (room.touched || 0)
-    if (room.status === 'lobby' && room.kind === 'match' && humanCount(room) >= room.count) {
-      await maybeAutoStart(room)
-      dirty = true
+    if (room.status === 'lobby' && room.kind === 'match') {
+      if (await maybeAutoStart(room)) dirty = true
     }
 
     if (room.status === 'lobby' && age > LOBBY_TTL_MS) {
@@ -836,7 +943,7 @@ async function tickRoom(code) {
     }
 
     if (room.forfeitWinAt && now >= room.forfeitWinAt && room.status === 'playing' && !room.game?.winner) {
-      await awardForfeitWin(room)
+      await resolveQuitTimer(room)
       dirty = true
     }
 

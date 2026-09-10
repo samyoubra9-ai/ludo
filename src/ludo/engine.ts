@@ -23,7 +23,12 @@ function touchMisses(state: GameState, color: ColorId, value: number): GameState
 
 function nextColor(players: Player[], current: ColorId): ColorId {
   const i = players.findIndex((p) => p.color === current)
-  return players[(i + 1) % players.length].color
+  const start = i < 0 ? 0 : i
+  for (let n = 1; n <= players.length; n += 1) {
+    const player = players[(start + n) % players.length]
+    if (!player.out) return player.color
+  }
+  return players[(start + 1) % players.length].color
 }
 
 function tokensOf(state: GameState, color: ColorId): Token[] {
@@ -98,7 +103,8 @@ export function legalMoves(state: GameState): string[] {
 }
 
 function passTurn(state: GameState, message: string, bonus = false): GameState {
-  const extra = bonus || (state.dice === 6 && state.sixes < 3)
+  const me = state.players.find((p) => p.color === state.turn)
+  const extra = !me?.out && (bonus || (state.dice === 6 && state.sixes < 3))
   if (extra) {
     return {
       ...state,

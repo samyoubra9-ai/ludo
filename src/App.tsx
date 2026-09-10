@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import {
   createRoom,
   fetchMe,
+  fetchRoom,
   findMatch,
+  isRoomUnchanged,
   joinRoom,
   leaveRoom,
   loginWallet,
@@ -11,6 +13,7 @@ import {
   rollRoom,
   startRoom,
   ApiError,
+  type PlayingInfo,
   type RoomSnapshot,
 } from './api/client'
 import { GameScreen } from './components/GameScreen'
@@ -42,7 +45,7 @@ export default function App() {
   const [joinCode, setJoinCode] = useState('')
   const [room, setRoom] = useState<RoomSnapshot | null>(null)
   const [roomBusy, setRoomBusy] = useState(false)
-  const [resume, setResume] = useState<{ code: string; status: 'lobby' | 'playing' | 'ended' } | null>(null)
+  const [resume, setResume] = useState<PlayingInfo | null>(null)
 
   useEffect(() => {
     if (!session) return
@@ -54,15 +57,14 @@ export default function App() {
         setResume(me.playing ?? null)
         setReady(true)
         if (me.playing?.code && me.playing.status === 'playing') {
-          return joinRoom(session.token, {
-            code: me.playing.code,
-            name: name.trim() || shortName(session.address),
-            color,
-          }).then((next) => {
-            if (!cancelled) setRoom(next)
-          }).catch(() => {
-            if (!cancelled) setResume(null)
-          })
+          return fetchRoom(session.token, me.playing.code)
+            .then((next) => {
+              if (cancelled || isRoomUnchanged(next)) return
+              setRoom(next)
+            })
+            .catch(() => {
+              if (!cancelled) setResume(null)
+            })
         }
       })
       .catch(async (err) => {
@@ -301,6 +303,60 @@ export default function App() {
     setError('')
   }
 
+  const resignRoom = async () => {
+    if (!session || !room) return
+    try {
+      const next = await leaveRoom(session.token, room.code)
+      if (next && 'status' in next) {
+        setRoom({ ...next, urls: next.urls?.length ? next.urls : room.urls })
+        if (typeof next.coins === 'number') setCoins(next.coins)
+        if (next.status === 'playing') {
+          const seat = next.seats.find((s) => s.color === next.you)
+          setResume({ code: next.code, status: next.status, leaving: Boolean(seat?.leaving) })
+        } else {
+          setResume(null)
+        }
+        return
+      }
+      setRoom(null)
+      setResume(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Impossible de quitter.')
+    }
+  }
+
+  const rejoinRoom = async () => {
+    if (!session || !room) return
+    try {
+      const next = await joinRoom(session.token, {
+        code: room.code,
+        name: name.trim() || shortName(session.address),
+        color: room.you ?? color,
+      })
+      setRoom(next)
+      setResume({ code: next.code, status: next.status, leaving: false })
+      if (typeof next.coins === 'number') setCoins(next.coins)
+      setError('')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Impossible de revenir.'
+      setError(message)
+      throw err
+    }
+  }
+
+  const parkRoom = () => {
+    if (room) {
+      const seat = room.seats.find((s) => s.color === room.you)
+      setResume({
+        code: room.code,
+        status: room.status === 'ended' ? 'playing' : room.status,
+        leaving: Boolean(seat?.leaving),
+      })
+    }
+    setRoom(null)
+    setError('')
+  }
+
   const leave = async () => {
     if (room) {
       await dropRoom()
@@ -362,6 +418,12 @@ export default function App() {
               void moveRoom(session.token, room.code, tokenId).then(setRoom).catch(() => undefined)
             },
           }}
+          youLeaving={Boolean(room.seats.find((s) => s.color === room.you)?.leaving)}
+          youForfeited={Boolean(room.seats.find((s) => s.color === room.you)?.forfeited)}
+          leavingColors={room.seats.filter((s) => s.leaving).map((s) => s.color)}
+          onResign={() => void resignRoom()}
+          onRejoin={() => rejoinRoom()}
+          onPark={parkRoom}
           onExit={() => void leave()}
         />
       ) : game ? (

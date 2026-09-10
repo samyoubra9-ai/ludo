@@ -30,10 +30,10 @@ const PAGES: Page[] = ['counter', 'overview', 'clients', 'journal', 'profit']
 
 const NAV: { id: Page; label: string; hint: string }[] = [
   { id: 'counter', label: 'Guichet', hint: 'Vendre et racheter' },
-  { id: 'overview', label: 'Vue d’ensemble', hint: 'Stock et flux' },
-  { id: 'profit', label: 'Tarifs & bénéfice', hint: 'Prix DA et marge' },
+  { id: 'overview', label: 'Vue d’ensemble', hint: 'Stock et volume' },
+  { id: 'profit', label: 'Tarifs', hint: 'Prix DA au comptoir' },
   { id: 'clients', label: 'Clients', hint: 'Rattachés ici' },
-  { id: 'journal', label: 'Mouvements', hint: 'Journal du jour' },
+  { id: 'journal', label: 'Mouvements', hint: 'Journal' },
 ]
 
 function readPage(): Page {
@@ -287,8 +287,8 @@ function Dashboard({
         </nav>
         <div className="dash-side__foot">
           <p>
-            Bénéfice
-            <strong>{formatDa(me.pnl?.profit ?? 0)}</strong>
+            Envoyé
+            <strong>{formatLudo(me.pnl?.sold ?? 0)}</strong>
           </p>
           <button type="button" className="dash-link" onClick={() => void onLogout()}>
             Fermer la caisse
@@ -357,8 +357,16 @@ function Overview({ me, onPage }: { me: KioskMe; onPage: (page: Page) => void })
     <>
       <section className="dash-kpis">
         <Kpi label="Stock caisse" value={formatCoins(me.coins)} hint="LUDO disponibles à vendre" />
-        <Kpi label="Bénéfice" value={formatDa(me.pnl?.profit ?? 0)} hint={`Encaissé ${formatDa(me.pnl?.cashIn ?? 0)} · rendu ${formatDa(me.pnl?.cashOut ?? 0)}`} />
-        <Kpi label="Marge 24 h" value={formatDa(me.pnlToday?.profit ?? 0)} hint={`${me.today.sell} ventes · ${me.today.buyback} rachats`} />
+        <Kpi
+          label="LUDO envoyés"
+          value={formatLudo(me.pnl?.sold ?? 0)}
+          hint={`${me.pnl?.sell ?? 0} vente(s) · ${formatLudo(me.pnlToday?.sold ?? 0)} / 24 h`}
+        />
+        <Kpi
+          label="LUDO rachetés"
+          value={formatLudo(me.pnl?.bought ?? 0)}
+          hint={`${me.pnl?.buyback ?? 0} rachat(s) · ${formatLudo(me.pnlToday?.bought ?? 0)} / 24 h`}
+        />
         <Kpi
           label="Tarifs"
           value={`${me.sellDa}/${me.buyDa}`}
@@ -413,7 +421,6 @@ function Rates({
   const [buyDa, setBuyDa] = useState(String(me.buyDa || unit))
   const sell = Math.floor(Number(sellDa))
   const buy = Math.floor(Number(buyDa))
-  const spread = Number.isInteger(sell) && Number.isInteger(buy) ? sell - buy : 0
 
   useEffect(() => {
     setSellDa(String(me.sellDa || unit))
@@ -423,16 +430,16 @@ function Rates({
   return (
     <>
       <section className="dash-kpis">
-        <Kpi label="Bénéfice total" value={formatDa(me.pnl?.profit ?? 0)} hint={`Encaissé ${formatDa(me.pnl?.cashIn ?? 0)} − rendu ${formatDa(me.pnl?.cashOut ?? 0)}`} />
-        <Kpi label="Bénéfice 24 h" value={formatDa(me.pnlToday?.profit ?? 0)} hint={`${formatLudo(me.pnlToday?.sold ?? 0)} vendus`} />
-        <Kpi label={`Marge / ${formatCoins(unit)} LUDO`} value={formatDa(spread)} hint={spread <= 0 ? 'Vends plus cher que tu ne rachètes' : 'Aller-retour type'} />
+        <Kpi label="LUDO envoyés" value={formatLudo(me.pnl?.sold ?? 0)} hint={`${me.pnl?.sell ?? 0} vente(s)`} />
+        <Kpi label="LUDO rachetés" value={formatLudo(me.pnl?.bought ?? 0)} hint={`${me.pnl?.buyback ?? 0} rachat(s)`} />
+        <Kpi label="Aujourd’hui" value={formatLudo(me.pnlToday?.sold ?? 0)} hint={`${me.today.sell} ventes · ${me.today.buyback} rachats`} />
         <Kpi label="Stock" value={formatLudo(me.coins)} hint="À recharger si ça baisse" />
       </section>
       <div className="dash-form-wrap">
         <ol className="dash-steps">
-          <li>Tu vends {formatCoins(unit)} LUDO contre {formatDa(Number.isInteger(sell) ? sell : 0)} (le client paie).</li>
-          <li>Tu rachètes {formatCoins(unit)} LUDO pour {formatDa(Number.isInteger(buy) ? buy : 0)} (tu paies le client).</li>
-          <li>Le bénéfice = dinars encaissés − dinars rendus, au tarif du moment de l’opération.</li>
+          <li>Tu vends {formatCoins(unit)} LUDO contre {formatDa(Number.isInteger(sell) ? sell : 0)} DA (le client paie).</li>
+          <li>Tu rachètes {formatCoins(unit)} LUDO pour {formatDa(Number.isInteger(buy) ? buy : 0)} DA (tu paies le client).</li>
+          <li>Ces prix servent au comptoir. Pas de calcul de gain ici.</li>
         </ol>
         <form
           className="dash-panel dash-form"
@@ -467,11 +474,6 @@ function Rates({
               onChange={(e) => setBuyDa(e.target.value.replace(/[^\d]/g, ''))}
             />
           </label>
-          {spread <= 0 ? (
-            <p className="bank-note">Avec ces tarifs tu ne gagnes rien (ou tu perds) sur un aller-retour.</p>
-          ) : (
-            <p className="field__hint">Marge {formatDa(spread)} si tu vends puis rachètes {formatCoins(unit)} LUDO.</p>
-          )}
           <button className="btn-play" type="submit" disabled={busy}>
             {busy ? 'Enregistrement…' : 'Enregistrer les tarifs'}
           </button>

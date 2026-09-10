@@ -1,12 +1,18 @@
 import type { ColorId, GameState } from '../ludo/types'
 
+export type PlayingInfo = {
+  code: string
+  status: 'lobby' | 'playing' | 'ended'
+  leaving?: boolean
+}
+
 export interface WalletSnapshot {
   address: string
   coins: number
   refilled?: boolean
   kioskName?: string | null
   token?: string
-  playing?: { code: string; status: 'lobby' | 'playing' | 'ended' } | null
+  playing?: PlayingInfo | null
   telegramBot?: string | null
 }
 
@@ -59,6 +65,7 @@ export type RoomSeat = {
   online?: boolean
   botPlay?: boolean
   forfeited?: boolean
+  leaving?: boolean
 }
 
 export type RoomSnapshot = {
@@ -79,6 +86,7 @@ export type RoomSnapshot = {
   notice?: string | null
   forfeitWinAt?: number
   turnDueAt?: number
+  startAt?: number
   kind?: 'private' | 'match'
 }
 

@@ -192,7 +192,26 @@ function touchMisses(state, color, value) {
 
 function nextColor(players, current) {
   const i = players.findIndex((p) => p.color === current)
-  return players[(i + 1) % players.length].color
+  const start = i < 0 ? 0 : i
+  for (let n = 1; n <= players.length; n += 1) {
+    const player = players[(start + n) % players.length]
+    if (!player.out) return player.color
+  }
+  return players[(start + 1) % players.length].color
+}
+
+export function skipOutPlayers(state, note) {
+  if (!state || state.winner) return state
+  const current = state.players.find((p) => p.color === state.turn)
+  if (!current?.out) return state
+  return {
+    ...state,
+    turn: nextColor(state.players, state.turn),
+    phase: 'to-roll',
+    sixes: 0,
+    movable: [],
+    message: note || `${current.name} a quitté. Sa mise reste au pot.`,
+  }
 }
 
 function tokensOf(state, color) {
@@ -223,7 +242,8 @@ export function legalMoves(state) {
 }
 
 function passTurn(state, message, bonus = false) {
-  const extra = bonus || (state.dice === 6 && state.sixes < 3)
+  const me = state.players.find((p) => p.color === state.turn)
+  const extra = !me?.out && (bonus || (state.dice === 6 && state.sixes < 3))
   if (extra) {
     return {
       ...state,
@@ -362,6 +382,9 @@ export function applyMove(state, tokenId) {
   const finished = tokens.filter((t) => t.color === token.color && t.loc.kind === 'done').length
   if (finished === 4) {
     const winner = moved.players.find((p) => p.color === token.color)
+    if (winner?.out) {
+      return passTurn(moved, `${winner.name} a quitté. Sa mise reste au pot.`)
+    }
     return {
       ...moved,
       phase: 'ended',

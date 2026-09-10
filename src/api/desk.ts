@@ -173,6 +173,10 @@ export function setAgentFrozen(token: string, id: number, freeze: boolean) {
   )
 }
 
+export function deleteAgent(token: string, id: number) {
+  return apiRequest<{ ok: boolean; name: string }>(`/api/admin/agents/${id}/delete`, { method: 'POST' }, token)
+}
+
 export type CenterApp = {
   id: number
   telegram_id: number

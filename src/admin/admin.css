@@ -450,6 +450,10 @@ body:has(.dash),
 
 .dash-table__act {
   text-align: right;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
 }
 
 .dash-empty,

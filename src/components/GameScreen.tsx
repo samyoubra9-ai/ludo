@@ -55,6 +55,12 @@ export function GameScreen({
   live,
   remote,
   onExit,
+  onResign,
+  onRejoin,
+  onPark,
+  youLeaving = false,
+  youForfeited = false,
+  leavingColors = [],
 }: {
   initial: GameState
   live?: GameState | null
@@ -69,11 +75,20 @@ export function GameScreen({
     onMove: (id: string) => void
   }
   onExit: () => void
+  onResign?: () => void
+  onRejoin?: () => void
+  onPark?: () => void
+  youLeaving?: boolean
+  youForfeited?: boolean
+  leavingColors?: ColorId[]
 }) {
   const [localGame, setLocalGame] = useState(initial)
   const [localRolling, setLocalRolling] = useState(false)
   const [forfeitSecs, setForfeitSecs] = useState(0)
   const [localDueAt, setLocalDueAt] = useState(0)
+  const [askLeave, setAskLeave] = useState(false)
+  const [leaveBusy, setLeaveBusy] = useState(false)
+  const [rejoinError, setRejoinError] = useState('')
   const rollTimer = useRef<number | null>(null)
   const game = remote ? (live ?? initial) : localGame
   const rolling = remote ? Boolean(remote.rolling) : localRolling
@@ -83,10 +98,55 @@ export function GameScreen({
     game.players.find((p) => (remote ? p.color === remote.myColor : p.isHuman)) ?? game.players[0]
   const waitingForfeit = forfeitSecs > 0
   const abandoned = Boolean(remote?.abandoned) || (game.phase === 'ended' && !game.winner)
-  const youPlay = !game.winner && !waitingForfeit && !abandoned && player.color === you.color && player.isHuman
-  const notice = waitingForfeit
-    ? `Adversaire a quitté. Forfait dans ${forfeitSecs} s si tu restes. Si tu quittes aussi, personne ne gagne.`
-    : remote?.notice
+  const youPlay =
+    !game.winner &&
+    !waitingForfeit &&
+    !abandoned &&
+    !youLeaving &&
+    !youForfeited &&
+    player.color === you.color &&
+    player.isHuman
+  const notice = youLeaving
+    ? `Tu as ${forfeitSecs} s pour revenir, sinon ta mise reste au pot.`
+    : waitingForfeit
+      ? remote?.notice || `Adversaire a quitté. Retour possible ${forfeitSecs} s.`
+      : remote?.notice
+  const gameOver = Boolean(game.winner) || abandoned
+
+  const requestLeave = () => {
+    if (gameOver || youForfeited) {
+      onExit()
+      return
+    }
+    if (youLeaving) {
+      if (onPark) onPark()
+      else onExit()
+      return
+    }
+    setAskLeave(true)
+  }
+
+  const confirmLeave = () => {
+    setAskLeave(false)
+    if (onResign) {
+      setLeaveBusy(true)
+      onResign()
+      window.setTimeout(() => setLeaveBusy(false), 1200)
+      return
+    }
+    onExit()
+  }
+
+  const confirmRejoin = () => {
+    if (!onRejoin || leaveBusy) return
+    setLeaveBusy(true)
+    setRejoinError('')
+    void Promise.resolve(onRejoin())
+      .catch((err) => {
+        setRejoinError(err instanceof Error ? err.message : 'Impossible de revenir.')
+      })
+      .finally(() => setLeaveBusy(false))
+  }
 
   const roll = useCallback(() => {
     unlockSfx()
@@ -230,8 +290,8 @@ export function GameScreen({
       <div className="table__felt" aria-hidden="true" />
       <header className="table__bar">
         <div className="table__bar-left">
-          <button type="button" className="btn-ghost" onClick={onExit}>
-            Quitter
+          <button type="button" className="btn-ghost" onClick={requestLeave} disabled={leaveBusy}>
+            {youLeaving ? 'Accueil' : 'Quitter'}
           </button>
           <AudioToggle />
         </div>
@@ -244,7 +304,7 @@ export function GameScreen({
         </div>
         <Coins value={you.coins} />
       </header>
-      {notice ? <p className="net-banner">{notice}</p> : null}
+      {notice && !youLeaving ? <p className={`net-banner ${waitingForfeit ? 'is-warn' : ''}`}>{notice}</p> : null}
 
       <div className="table__stage">
         <div className="table__board-wrap">
@@ -252,14 +312,20 @@ export function GameScreen({
             {game.players.map((seat) => (
               <article
                 key={seat.color}
-                className={`seat seat--${seat.color} ${seat.color === game.turn ? 'is-turn' : ''} ${seat.color === you.color ? 'is-you' : ''}`}
+                className={`seat seat--${seat.color} ${seat.color === game.turn ? 'is-turn' : ''} ${seat.color === you.color ? 'is-you' : ''} ${leavingColors.includes(seat.color) || seat.out ? 'is-leaving' : ''}`}
               >
                 <span className="seat__pawn" style={{ background: PALETTE[seat.color].hex }}>
                   {seat.name.slice(0, 1).toUpperCase()}
                 </span>
                 <div className="seat__meta">
                   <strong>{seat.name}</strong>
-                  <small>{formatCoins(seat.coins)}</small>
+                  <small>
+                    {leavingColors.includes(seat.color)
+                      ? 'Peut revenir…'
+                      : seat.out
+                        ? 'Parti · mise au pot'
+                        : formatCoins(seat.coins)}
+                  </small>
                 </div>
               </article>
             ))}
@@ -274,7 +340,63 @@ export function GameScreen({
         </div>
       </div>
 
-      {abandoned && (
+      {askLeave ? (
+        <div className="leave-scrim" role="dialog" aria-modal="true" aria-labelledby="leave-title">
+          <div className="leave-sheet">
+            <p className="leave-sheet__kicker">Un instant</p>
+            <h2 id="leave-title">Tu quittes la partie ?</h2>
+            <p>
+              {remote
+                ? 'Si tu confirmes, tu as 20 secondes pour revenir. Sinon ta mise reste au pot : le gagnant l’encaisse à la fin.'
+                : 'Tu vas quitter cette partie. Rien n’est misé, tu pourras en relancer une.'}
+            </p>
+            <div className="leave-actions">
+              <button type="button" className="btn-ghost btn-ghost--wide" onClick={() => setAskLeave(false)}>
+                Rester
+              </button>
+              <button type="button" className="btn-danger" onClick={confirmLeave}>
+                Quitter
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {youLeaving && !gameOver ? (
+        <div className="result is-leave">
+          <p className="result__kicker">Tu as quitté</p>
+          <h2>{forfeitSecs}s</h2>
+          <p>Reviens avant la fin du délai, sinon ta mise reste au pot pour le gagnant.</p>
+          {rejoinError ? <p className="leave-error">{rejoinError}</p> : null}
+          <button type="button" className="btn-play" onClick={confirmRejoin} disabled={leaveBusy}>
+            {leaveBusy ? 'Retour…' : 'Revenir dans la partie'}
+          </button>
+          <button
+            type="button"
+            className="btn-ghost btn-ghost--wide"
+            onClick={() => {
+              if (onPark) onPark()
+              else onExit()
+            }}
+          >
+            Accueil
+          </button>
+        </div>
+      ) : null}
+
+      {youForfeited && !gameOver && !youLeaving ? (
+        <div className="result is-loss">
+          <span className="result__medal" aria-hidden="true" />
+          <p className="result__kicker">Forfait</p>
+          <h2>{free ? 'Perdu' : `−${formatLudo(game.stake)}`}</h2>
+          <p>Ta mise reste au pot. Tu ne joues plus : le gagnant l’encaisse à la fin.</p>
+          <button type="button" className="btn-play" onClick={onExit}>
+            Retour au lobby
+          </button>
+        </div>
+      ) : null}
+
+      {abandoned && !youLeaving && (
         <div className="result is-draw">
           <span className="result__medal" aria-hidden="true" />
           <p className="result__kicker">Match nul</p>
@@ -286,7 +408,7 @@ export function GameScreen({
         </div>
       )}
 
-      {game.winner && (
+      {game.winner && !youLeaving && (
         <div className={`result ${won ? 'is-win' : 'is-loss'}`}>
           <span className="result__medal" aria-hidden="true" />
           <p className="result__kicker">{won ? 'Victoire' : 'Défaite'}</p>

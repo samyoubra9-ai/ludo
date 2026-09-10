@@ -107,7 +107,7 @@ export function HomeScreen({
   error?: string
   mode: PlayMode
   joinCode: string
-  resume?: { code: string; status: 'lobby' | 'playing' | 'ended' } | null
+  resume?: { code: string; status: 'lobby' | 'playing' | 'ended'; leaving?: boolean } | null
   onName: (value: string) => void
   onCount: (value: PlayerCount) => void
   onColor: (value: ColorId) => void
@@ -208,10 +208,15 @@ export function HomeScreen({
         {resume?.code ? (
           <p className="resume-banner">
             <span>
-              {resume.status === 'playing' ? 'Partie en cours' : 'Salon en attente'} · {resume.code}
+              {resume.leaving
+                ? 'Tu as 20 s pour revenir'
+                : resume.status === 'playing'
+                  ? 'Partie en cours'
+                  : 'Salon en attente'}{' '}
+              · {resume.code}
             </span>
             <button type="button" className="hash-btn" onClick={onResumeRoom}>
-              Reprendre
+              {resume.leaving ? 'Revenir' : 'Reprendre'}
             </button>
           </p>
         ) : null}

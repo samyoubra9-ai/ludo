@@ -6,8 +6,19 @@ import { copyText } from '../identity/copy'
 import { formatLudo } from '../ludo/wallet'
 import { AudioToggle } from './AudioToggle'
 
+const MATCH_COUNTDOWN_MS = 3000
+const BEAT_COLORS = ['c-red', 'c-green', 'c-yellow', 'c-blue'] as const
+
 function seatKey(seat: RoomSeat) {
   return seat.address || `${seat.color}:${seat.name}`
+}
+
+function matchBeat(startAt: number) {
+  if (!startAt) return -1
+  const remaining = startAt - Date.now()
+  if (remaining <= 0) return 0
+  const elapsed = Math.max(0, MATCH_COUNTDOWN_MS - remaining)
+  return Math.min(3, Math.floor(elapsed / 1000) + 1)
 }
 
 export function RoomLobby({
@@ -31,8 +42,33 @@ export function RoomLobby({
   const [copied, setCopied] = useState('')
   const [toast, setToast] = useState<{ text: string; tone: 'in' | 'out' } | null>(null)
   const [pop, setPop] = useState<string | null>(null)
+  const [askLeave, setAskLeave] = useState(false)
+  const [beat, setBeat] = useState(() => matchBeat(room.startAt || 0))
   const seen = useRef<Map<string, string> | null>(null)
+  const heardBeat = useRef(-1)
   const waiting = room.humans ?? 0
+  const counting = match && room.status === 'lobby' && Boolean(room.startAt)
+
+  useEffect(() => {
+    const startAt = room.startAt || 0
+    if (!startAt) {
+      setBeat(-1)
+      heardBeat.current = -1
+      return
+    }
+    const tick = () => setBeat(matchBeat(startAt))
+    tick()
+    const id = window.setInterval(tick, 80)
+    return () => window.clearInterval(id)
+  }, [room.startAt])
+
+  useEffect(() => {
+    if (!counting || beat < 0) return
+    if (heardBeat.current === beat) return
+    heardBeat.current = beat
+    if (beat === 0) playSfx('six')
+    else if (beat > 0) playSfx('join')
+  }, [counting, beat])
 
   useEffect(() => {
     const humans = room.seats.filter((seat) => seat.kind === 'human')
@@ -109,7 +145,9 @@ export function RoomLobby({
         )}
         <p className="logo__tag">
           {match
-            ? `Dès que ${room.count} joueurs réels sont à table, la partie lance. Tes LUDO restent en jeu.`
+            ? counting
+              ? 'Table complète. Ça commence.'
+              : `Dès que ${room.count} joueurs réels sont à table, la partie lance. Tes LUDO restent en jeu.`
             : copied === 'code'
               ? 'Code copié.'
               : 'Partage le code. Tes amis tapent ces 4 lettres.'}
@@ -123,7 +161,9 @@ export function RoomLobby({
         <p className="room-fill__label">
           {waiting}/{room.count} autour de la table · mise {formatLudo(room.stake)}
         </p>
-        {match ? <p className="match-wait">Recherche de joueurs…</p> : null}
+        {match ? (
+          <p className="match-wait">{counting ? 'Tout le monde est là' : 'Recherche de joueurs…'}</p>
+        ) : null}
         {!match && isHost && urls.length ? (
           urls.map((url) => (
             <button
@@ -191,10 +231,51 @@ export function RoomLobby({
           <p className="field__hint wait-note">L’hôte lance dès que vous êtes au moins deux.</p>
         )}
 
-        <button type="button" className="btn-ghost room-leave" onClick={onLeave}>
+        <button type="button" className="btn-ghost room-leave" onClick={() => setAskLeave(true)}>
           {match ? 'Annuler la recherche' : 'Quitter la salle'}
         </button>
       </div>
+      {askLeave ? (
+        <div className="leave-scrim" role="dialog" aria-modal="true" aria-labelledby="lobby-leave-title">
+          <div className="leave-sheet">
+            <p className="leave-sheet__kicker">Un instant</p>
+            <h2 id="lobby-leave-title">{match ? 'Annuler la recherche ?' : 'Quitter le salon ?'}</h2>
+            <p>
+              {match
+                ? counting
+                  ? 'Le compte à rebours s’annule. Tes LUDO restent sur ton compte.'
+                  : 'Tu sors de la file. Tes LUDO restent sur ton compte.'
+                : 'Tu quittes ce salon. Tes LUDO restent sur ton compte, la partie n’a pas encore commencé.'}
+            </p>
+            <div className="leave-actions">
+              <button type="button" className="btn-ghost btn-ghost--wide" onClick={() => setAskLeave(false)}>
+                Rester
+              </button>
+              <button
+                type="button"
+                className="btn-danger"
+                onClick={() => {
+                  setAskLeave(false)
+                  onLeave()
+                }}
+              >
+                {match ? 'Annuler' : 'Quitter'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {counting ? (
+        <div className="go-count" role="status" aria-live="assertive">
+          <p className="go-count__kicker">{beat === 0 ? 'C’est parti' : 'La partie commence'}</p>
+          <p key={beat} className={`go-count__beat ${BEAT_COLORS[beat === 0 ? 3 : beat - 1]}`}>
+            {beat === 0 ? 'GO' : beat}
+          </p>
+          <button type="button" className="btn-ghost go-count__leave" onClick={() => setAskLeave(true)}>
+            Annuler
+          </button>
+        </div>
+      ) : null}
     </section>
   )
 }

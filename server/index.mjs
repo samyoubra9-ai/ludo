@@ -271,9 +271,12 @@ const server = createServer(async (req, res) => {
       }
       const next = await withDesk(wallet)
       const playing = await activeRoomFor(wallet.address)
+      const youSeat = playing?.seats.find((seat) => seat.address === wallet.address && seat.kind === 'human')
       json(res, 200, {
         ...next,
-        playing: playing ? { code: playing.code, status: playing.status } : null,
+        playing: playing
+          ? { code: playing.code, status: playing.status, leaving: Boolean(youSeat?.quitAt) && !youSeat?.forfeited }
+          : null,
         telegramBot: telegramBotUsername(),
       })
       return
