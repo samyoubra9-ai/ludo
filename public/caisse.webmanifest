@@ -1,0 +1,20 @@
+{
+  "id": "/caisse",
+  "name": "Ludo Caisse",
+  "short_name": "Caisse",
+  "description": "Comptoir Ludo — vendre et racheter des LUDO.",
+  "lang": "fr",
+  "dir": "ltr",
+  "start_url": "/caisse/",
+  "scope": "/caisse/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#0f3d2c",
+  "background_color": "#0f3d2c",
+  "categories": ["business", "finance"],
+  "icons": [
+    { "src": "/pwa-caisse-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/pwa-caisse-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/pwa-caisse-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

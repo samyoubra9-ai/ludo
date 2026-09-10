@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#12104a" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Ludo" />
+    <meta name="description" content="Ludo en ligne — parties en solo, matchmaking ou salon." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Nunito:wght@600;800&display=swap"
+      rel="stylesheet"
+    />
+    <title>Ludo</title>
+    <script>
+      (function () {
+        var path = location.pathname.replace(/\/+$/, '') || '/'
+        var href = '/manifest.webmanifest'
+        var title = 'Ludo'
+        var theme = '#12104a'
+        var icon = '/apple-touch-icon.png'
+        if (path === '/caisse' || path.indexOf('/caisse/') === 0) {
+          href = '/caisse.webmanifest'
+          title = 'Ludo Caisse'
+          theme = '#0f3d2c'
+          icon = '/pwa-caisse-192.png'
+        } else if (path === '/admin' || path.indexOf('/admin/') === 0) {
+          href = '/admin.webmanifest'
+          title = 'Ludo Admin'
+          theme = '#0b1022'
+          icon = '/pwa-admin-192.png'
+        }
+        var link = document.querySelector('link[rel="manifest"]')
+        if (!link) {
+          link = document.createElement('link')
+          link.rel = 'manifest'
+          document.head.appendChild(link)
+        }
+        link.setAttribute('href', href)
+        document.title = title
+        var apple = document.querySelector('meta[name="apple-mobile-web-app-title"]')
+        if (apple) apple.setAttribute('content', title)
+        var themeEl = document.querySelector('meta[name="theme-color"]')
+        if (themeEl) themeEl.setAttribute('content', theme)
+        var touch = document.querySelector('link[rel="apple-touch-icon"]')
+        if (touch) touch.setAttribute('href', icon)
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

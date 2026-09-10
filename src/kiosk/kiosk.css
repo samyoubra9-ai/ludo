@@ -1,0 +1,135 @@
+.till-stock {
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(240, 196, 0, 0.16);
+  color: #ffe36a;
+  font-weight: 800;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.till-lookup h2 {
+  margin-bottom: 0.75rem;
+}
+
+.till-id {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 0.5rem;
+}
+
+.till-id input {
+  min-width: 0;
+}
+
+.till-work {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 0.85rem;
+  align-items: start;
+}
+
+.till-id-title {
+  margin: 0.15rem 0 0.35rem;
+  font-family: var(--display);
+  font-size: 1.7rem;
+}
+
+.till-full {
+  margin: 0;
+  color: #f7e08a;
+  font-size: 0.8rem;
+  font-weight: 700;
+  word-break: break-all;
+}
+
+.till-balance {
+  margin: 0.85rem 0 0.7rem;
+  font-family: var(--display);
+  font-size: 2rem;
+  letter-spacing: 0.02em;
+}
+
+.till-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.till-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+  margin-top: 0.35rem;
+}
+
+.till-act {
+  border: 0;
+  border-radius: 18px;
+  min-height: 76px;
+  padding: 0.85rem 0.7rem;
+  color: #12203a;
+  font-weight: 800;
+  display: grid;
+  gap: 0.15rem;
+  justify-items: center;
+}
+
+.till-act small {
+  font-size: 0.72rem;
+  font-weight: 800;
+  opacity: 0.72;
+}
+
+.till-act--sell {
+  background: linear-gradient(180deg, #7dffb0, #21c45a);
+  box-shadow: 0 8px 0 #148a3c;
+}
+
+.till-act--buy {
+  background: linear-gradient(180deg, #ffe36a, #f0b400);
+  box-shadow: 0 8px 0 #c38a00;
+}
+
+.till-act:disabled {
+  filter: grayscale(0.4);
+  opacity: 0.45;
+  box-shadow: none;
+}
+
+.till-act:not(:disabled):active {
+  transform: translateY(3px);
+  box-shadow: 0 5px 0 rgba(0, 0, 0, 0.25);
+}
+
+.till-confirm {
+  margin-top: 0.9rem;
+  padding: 0.85rem;
+  border-radius: 16px;
+  background: rgba(240, 196, 0, 0.14);
+  border: 1px solid rgba(255, 227, 106, 0.28);
+}
+
+.till-confirm p {
+  margin: 0 0 0.7rem;
+  font-weight: 800;
+}
+
+.till-confirm-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.5rem;
+}
+
+@media (max-width: 960px) {
+  .till-work,
+  .till-id,
+  .till-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .till-stock {
+    display: none;
+  }
+}

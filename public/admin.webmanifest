@@ -1,0 +1,20 @@
+{
+  "id": "/admin",
+  "name": "Ludo Admin",
+  "short_name": "Admin",
+  "description": "Administration Ludo — centres de recharge et réseau.",
+  "lang": "fr",
+  "dir": "ltr",
+  "start_url": "/admin/",
+  "scope": "/admin/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#0b1022",
+  "background_color": "#0b1022",
+  "categories": ["business"],
+  "icons": [
+    { "src": "/pwa-admin-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/pwa-admin-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/pwa-admin-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

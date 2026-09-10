@@ -1,0 +1,9 @@
+node_modules
+data
+.git
+.env
+ludo.json
+*-keypair.json
+*.sqlite
+*.sqlite-*
+.cursor
