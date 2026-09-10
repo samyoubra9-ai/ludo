@@ -1,10 +1,17 @@
 html:has(.dash),
 body:has(.dash),
 #root:has(.dash) {
-  height: 100%;
   min-height: 100dvh;
   background: #0b1022;
-  overflow: hidden;
+}
+
+@media (min-width: 861px) {
+  html:has(.dash),
+  body:has(.dash),
+  #root:has(.dash) {
+    height: 100%;
+    overflow: hidden;
+  }
 }
 
 .dash-auth {
@@ -513,8 +520,25 @@ body:has(.dash),
 }
 
 @media (max-width: 860px) {
-  .dash {
+  .dash,
+  .app:has(.install-bar) .dash {
+    height: auto;
+    min-height: 100dvh;
+    flex: none;
     grid-template-columns: 1fr;
+  }
+
+  .dash-body {
+    overflow: visible;
+    padding-bottom: max(2.2rem, env(safe-area-inset-bottom));
+  }
+
+  .dash-top {
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 8;
+    background: #0b1022;
   }
 
   .dash__scrim {

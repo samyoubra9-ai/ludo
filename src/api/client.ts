@@ -10,6 +10,15 @@ export interface WalletSnapshot {
   telegramBot?: string | null
 }
 
+export class ApiError extends Error {
+  status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
 export async function apiRequest<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
   const headers = new Headers(init.headers)
   if (init.body) headers.set('Content-Type', 'application/json')
@@ -18,7 +27,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}, token?
   const res = await fetch(path, { ...init, headers })
   const data = (await res.json().catch(() => ({}))) as T & { error?: string }
   if (!res.ok) {
-    throw new Error(data.error || `Erreur ${res.status}`)
+    throw new ApiError(data.error || `Erreur ${res.status}`, res.status)
   }
   return data
 }

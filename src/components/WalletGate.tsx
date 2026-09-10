@@ -103,12 +103,12 @@ export function WalletGate({
       {step === 'welcome' && (
         <div className="lobby__card">
           <p className="logo__tag" style={{ marginTop: 0 }}>
-            Tu joues ici. Les LUDO s’achètent et se vendent <strong>au kiosque</strong>, en dinars — pas sur le site.
+            Pas d’e-mail. Tes 12 mots, c’est ton compte — une fois sur cet appareil, tu restes connecté.
           </p>
           <ol className="how-steps">
             <li>Crée ton compte (1 minute).</li>
-            <li>Note tes 12 mots : c’est la seule clé si tu changes de téléphone.</li>
-            <li>Copie ton ID, passe au kiosque, paie en dinars. Le gérant crédite tes LUDO. Le solo est déjà gratuit.</li>
+            <li>Note tes 12 mots : uniquement si tu changes de téléphone.</li>
+            <li>Le solo est gratuit. En match, tu joues avec tes LUDO.</li>
           </ol>
           {error && <p className="bank-note">{error}</p>}
           <div className="home__actions" style={{ display: 'grid', gap: '0.6rem', marginTop: '1.05rem' }}>

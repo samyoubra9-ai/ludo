@@ -231,6 +231,69 @@ async function listOps(limit = 40) {
     .all(cap)
 }
 
+async function lookupAdminWallet(raw) {
+  const address = String(raw || '').trim().toLowerCase()
+  if (!validAddress(address)) {
+    throw Object.assign(new Error('Colle un ID joueur 0x…'), { status: 400 })
+  }
+  const wallet = await db.prepare('SELECT address, coins FROM wallets WHERE address = ?').get(address)
+  if (!wallet) {
+    throw Object.assign(new Error('Compte introuvable. Le joueur doit d’abord ouvrir Ludo.'), { status: 404 })
+  }
+  const agent = await db.prepare('SELECT name, status FROM agents WHERE address = ?').get(address)
+  return {
+    address: wallet.address,
+    coins: wallet.coins,
+    kioskName: agent?.name || null,
+    kioskStatus: agent?.status || null,
+    playing: await isPlaying(address),
+  }
+}
+
+async function creditWallet(admin, rawAddress, rawCoins, rawNote) {
+  const address = String(rawAddress || '').trim().toLowerCase()
+  const coins = Math.floor(Number(rawCoins))
+  const note = String(rawNote || '').trim().slice(0, 80)
+  if (!validAddress(address)) {
+    throw Object.assign(new Error('Colle un ID joueur 0x…'), { status: 400 })
+  }
+  if (!Number.isInteger(coins) || coins < 1 || coins > 1_000_000) {
+    throw Object.assign(new Error('Montant : 1 à 1 000 000 LUDO.'), { status: 400 })
+  }
+  return tx(async () => {
+    const wallet = await db.prepare('SELECT address, coins FROM wallets WHERE address = ? FOR UPDATE').get(address)
+    if (!wallet) {
+      throw Object.assign(new Error('Compte introuvable. Le joueur doit d’abord ouvrir Ludo.'), { status: 404 })
+    }
+    await db
+      .prepare('UPDATE wallets SET coins = coins + ?, updated_at = ? WHERE address = ?')
+      .run(coins, nowIso(), address)
+    const id = randomBytes(12).toString('hex')
+    await db
+      .prepare(
+        `INSERT INTO admin_grants (id, admin_id, address, coins, note, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(id, admin.id, address, coins, note, nowIso())
+    const next = await db.prepare('SELECT coins FROM wallets WHERE address = ?').get(address)
+    const agent = await db.prepare('SELECT name FROM agents WHERE address = ?').get(address)
+    return { id, address, coins, balance: next.coins, kioskName: agent?.name || null, note }
+  })
+}
+
+async function listGrants(limit = 40) {
+  const cap = Math.min(80, Math.max(1, Math.floor(Number(limit) || 40)))
+  return db
+    .prepare(
+      `SELECT g.id, g.address, g.coins, g.note, g.created_at, a.username
+       FROM admin_grants g
+       LEFT JOIN admins a ON a.id = g.admin_id
+       ORDER BY g.created_at DESC
+       LIMIT ?`,
+    )
+    .all(cap)
+}
+
 export async function handleDesk(req, res, { json, readBody, pathOf, fail, bearer }) {
   const path = pathOf(req)
 
@@ -355,6 +418,31 @@ export async function handleDesk(req, res, { json, readBody, pathOf, fail, beare
     if (req.method === 'POST' && decide) {
       try {
         json(res, 200, await decideCenterApp(Number(decide[1]), decide[2]))
+      } catch (error) {
+        fail(res, error)
+      }
+      return true
+    }
+
+    const walletPath = path.match(/^\/api\/admin\/wallet\/(0x[a-fA-F0-9]{40})$/)
+    if (req.method === 'GET' && walletPath) {
+      try {
+        json(res, 200, await lookupAdminWallet(walletPath[1]))
+      } catch (error) {
+        fail(res, error)
+      }
+      return true
+    }
+
+    if (req.method === 'GET' && path === '/api/admin/grants') {
+      json(res, 200, { grants: await listGrants(40) })
+      return true
+    }
+
+    if (req.method === 'POST' && path === '/api/admin/credit') {
+      const body = await readBody(req)
+      try {
+        json(res, 200, await creditWallet(admin, body.address, body.coins, body.note))
       } catch (error) {
         fail(res, error)
       }

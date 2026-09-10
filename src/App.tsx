@@ -10,6 +10,7 @@ import {
   moveRoom,
   rollRoom,
   startRoom,
+  ApiError,
   type RoomSnapshot,
 } from './api/client'
 import { GameScreen } from './components/GameScreen'
@@ -35,7 +36,6 @@ export default function App() {
   const [color, setColor] = useState<ColorId>('red')
   const [stake, setStake] = useState<Stake>(100)
   const [coins, setCoins] = useState(0)
-  const [kioskName, setKioskName] = useState<string | null>(null)
   const [game, setGame] = useState<GameState | null>(null)
   const [error, setError] = useState('')
   const [mode, setMode] = useState<PlayMode>('solo')
@@ -51,7 +51,6 @@ export default function App() {
       .then((me) => {
         if (cancelled) return
         setCoins(me.coins)
-        setKioskName(me.kioskName ?? null)
         setResume(me.playing ?? null)
         setReady(true)
         if (me.playing?.code && me.playing.status === 'playing') {
@@ -66,10 +65,29 @@ export default function App() {
           })
         }
       })
-      .catch(() => {
+      .catch(async (err) => {
         if (cancelled) return
-        clearSession()
-        setSession(null)
+        const saved = loadSession()
+        if (saved?.loginToken) {
+          try {
+            const me = await loginWallet(saved.address, saved.loginToken)
+            if (cancelled) return
+            if (!me.token) throw new Error('Session serveur manquante.')
+            const next = { address: me.address, token: me.token, loginToken: saved.loginToken }
+            saveSession(next)
+            setSession(next)
+            setCoins(me.coins)
+            setResume(me.playing ?? null)
+            setReady(true)
+            return
+          } catch {
+            /* fall through */
+          }
+        }
+        if (err instanceof ApiError && err.status === 401) {
+          clearSession()
+          setSession(null)
+        }
         setReady(true)
       })
     return () => {
@@ -84,7 +102,6 @@ export default function App() {
       void fetchMe(token)
         .then((me) => {
           setCoins(me.coins)
-          setKioskName(me.kioskName ?? null)
           setResume(me.playing ?? null)
         })
         .catch(() => undefined)
@@ -151,11 +168,10 @@ export default function App() {
   const unlock = async (payload: { address: string; loginToken: string }) => {
     const me = await loginWallet(payload.address, payload.loginToken)
     if (!me.token) throw new Error('Session serveur manquante.')
-    const next = { address: me.address, token: me.token }
+    const next = { address: me.address, token: me.token, loginToken: payload.loginToken }
     saveSession(next)
     setSession(next)
     setCoins(me.coins)
-    setKioskName(me.kioskName ?? null)
   }
 
   const lock = () => {
@@ -165,7 +181,6 @@ export default function App() {
     setGame(null)
     setRoom(null)
     setResume(null)
-    setKioskName(null)
   }
 
   const play = async () => {
@@ -277,7 +292,6 @@ export default function App() {
       try {
         const me = await fetchMe(session.token)
         setCoins(me.coins)
-        setKioskName(me.kioskName ?? null)
         setResume(me.playing ?? null)
       } catch {
         /* keep last known */
@@ -299,7 +313,6 @@ export default function App() {
     try {
       const me = await fetchMe(session.token)
       setCoins(me.coins)
-      setKioskName(me.kioskName ?? null)
     } catch {
       /* keep last known */
     }
@@ -369,7 +382,6 @@ export default function App() {
           color={color}
           stake={stake}
           coins={coins}
-          kioskName={kioskName}
           address={session.address}
           error={error}
           mode={mode}

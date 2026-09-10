@@ -130,6 +130,12 @@
   }
 
   .till-stock {
-    display: none;
+    width: 100%;
+    order: 5;
+    text-align: center;
+  }
+
+  .till-id button {
+    min-height: 48px;
   }
 }

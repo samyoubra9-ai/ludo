@@ -17,8 +17,14 @@ import {
   rejectCenterApp,
   saveToken,
   setAgentFrozen,
+  lookupAdminWallet,
+  creditWallet,
+  listGrants,
+  parsePlayerId,
+  type AdminGrant,
   type AdminOp,
   type AdminOverview,
+  type AdminWallet,
   type CenterApp,
   type DeskAgent,
 } from '../api/desk'
@@ -29,12 +35,13 @@ import './admin.css'
 import { InstallPwa } from '../components/InstallPwa'
 
 type Gate = 'loading' | 'setup' | 'login' | 'desk'
-type Page = 'overview' | 'kiosks' | 'apps' | 'new' | 'activity' | 'profit'
+type Page = 'overview' | 'kiosks' | 'apps' | 'new' | 'activity' | 'profit' | 'credit'
 
-const PAGES: Page[] = ['overview', 'kiosks', 'apps', 'new', 'activity', 'profit']
+const PAGES: Page[] = ['overview', 'kiosks', 'apps', 'new', 'activity', 'profit', 'credit']
 
 const NAV: { id: Page; label: string; hint: string }[] = [
   { id: 'overview', label: 'Vue d’ensemble', hint: 'Stock et flux' },
+  { id: 'credit', label: 'Envoyer LUDO', hint: 'Joueur ou centre' },
   { id: 'kiosks', label: 'Centres', hint: 'Comptoirs validés' },
   { id: 'apps', label: 'Demandes', hint: 'Candidatures' },
   { id: 'profit', label: 'Bénéfices', hint: 'Maison et caisses' },
@@ -180,6 +187,7 @@ export function AdminApp() {
       ) : null}
       {gate === 'desk' ? (
         <Dashboard
+          token={token}
           username={username}
           page={page}
           agents={agents}
@@ -375,6 +383,7 @@ function AuthCard({
 }
 
 function Dashboard({
+  token,
   username,
   page,
   agents,
@@ -392,6 +401,7 @@ function Dashboard({
   onRejectApp,
   onLogout,
 }: {
+  token: string
   username: string
   page: Page
   agents: DeskAgent[]
@@ -478,6 +488,7 @@ function Dashboard({
           {page === 'overview' ? (
             <Overview agents={agents} overview={overview} onPage={onPage} />
           ) : null}
+          {page === 'credit' ? <Credit token={token} /> : null}
           {page === 'kiosks' ? <KioskTable agents={agents} onFreeze={onFreeze} onPage={onPage} /> : null}
           {page === 'apps' ? (
             <Applications apps={apps} busy={busy} onApprove={onApproveApp} onReject={onRejectApp} />
@@ -488,6 +499,177 @@ function Dashboard({
         </div>
       </div>
     </div>
+  )
+}
+
+function Credit({ token }: { token: string }) {
+  const [rawId, setRawId] = useState('')
+  const [amount, setAmount] = useState('')
+  const [note, setNote] = useState('')
+  const [wallet, setWallet] = useState<AdminWallet | null>(null)
+  const [grants, setGrants] = useState<AdminGrant[]>([])
+  const [error, setError] = useState('')
+  const [ok, setOk] = useState('')
+  const [busy, setBusy] = useState(false)
+  const coins = Math.floor(Number(amount))
+  const amountOk = Number.isInteger(coins) && coins > 0 && coins <= 1_000_000
+
+  const refreshGrants = async () => {
+    const next = await listGrants(token)
+    setGrants(next.grants)
+  }
+
+  useEffect(() => {
+    void refreshGrants().catch(() => undefined)
+  }, [token])
+
+  const find = async (value = rawId) => {
+    const address = parsePlayerId(value)
+    setError('')
+    setOk('')
+    if (!address) {
+      setWallet(null)
+      setError('Colle un ID joueur 0x…')
+      return
+    }
+    setBusy(true)
+    try {
+      const next = await lookupAdminWallet(token, address)
+      setWallet(next)
+      setRawId(next.address)
+    } catch (err) {
+      setWallet(null)
+      setError(err instanceof Error ? err.message : 'Compte introuvable.')
+    }
+    setBusy(false)
+  }
+
+  const send = async () => {
+    if (!wallet || !amountOk) return
+    setBusy(true)
+    setError('')
+    setOk('')
+    try {
+      const result = await creditWallet(token, wallet.address, coins, note)
+      setWallet(await lookupAdminWallet(token, wallet.address))
+      setAmount('')
+      setNote('')
+      setOk(
+        `+${formatLudo(result.coins)} envoyés${result.kioskName ? ` au centre ${result.kioskName}` : ''}. Solde : ${formatLudo(result.balance)}.`,
+      )
+      await refreshGrants()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Envoi refusé.')
+    }
+    setBusy(false)
+  }
+
+  return (
+    <>
+      <div className="dash-form-wrap">
+        <ol className="dash-steps">
+          <li>Colle l’ID 0x… d’un joueur ou d’un centre flexy (le compte doit déjà exister dans Ludo).</li>
+          <li>Les LUDO sont crédités tout de suite. Ça ne sort pas du stock d’une caisse.</li>
+          <li>Sers-t’en pour restocker un centre ou dépanner un joueur.</li>
+        </ol>
+        <form
+          className="dash-panel dash-form"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void find()
+          }}
+        >
+          <h2>Compte</h2>
+          <label className="field">
+            <span>ID joueur</span>
+            <input
+              autoCapitalize="off"
+              spellCheck={false}
+              placeholder="0x…"
+              value={rawId}
+              onChange={(e) => setRawId(e.target.value)}
+            />
+          </label>
+          <button className="dash-primary" type="submit" disabled={busy}>
+            {busy && !wallet ? 'Recherche…' : 'Ouvrir le compte'}
+          </button>
+          {wallet ? (
+            <>
+              <p className="dash-empty-line">
+                {shortAddress(wallet.address)} · {formatLudo(wallet.coins)}
+                {wallet.kioskName ? ` · centre ${wallet.kioskName}` : ' · joueur'}
+                {wallet.playing ? ' · en partie' : ''}
+              </p>
+              <label className="field">
+                <span>LUDO à envoyer</span>
+                <input
+                  inputMode="numeric"
+                  placeholder="5000"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ''))}
+                />
+              </label>
+              <div className="pills pills--stakes desk__pills">
+                {[500, 1000, 2000, 5000, 10000, 50000].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    className={Number(amount) === n ? 'pill is-on' : 'pill'}
+                    onClick={() => setAmount(String(n))}
+                  >
+                    {formatCoins(n)}
+                  </button>
+                ))}
+              </div>
+              <label className="field">
+                <span>Note (optionnel)</span>
+                <input
+                  maxLength={80}
+                  placeholder="Flexy, dépannage…"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                />
+              </label>
+              <button
+                className="btn-play"
+                type="button"
+                disabled={busy || !amountOk}
+                onClick={() => void send()}
+              >
+                {busy ? 'Envoi…' : amountOk ? `Envoyer ${formatLudo(coins)}` : 'Envoyer'}
+              </button>
+            </>
+          ) : null}
+          {ok ? <p className="dash-toast is-ok">{ok}</p> : null}
+          {error ? <p className="dash-toast is-bad">{error}</p> : null}
+        </form>
+      </div>
+      <article className="dash-panel dash-panel--full">
+        <header className="dash-panel__head">
+          <h2>Derniers envois</h2>
+        </header>
+        {grants.length === 0 ? (
+          <p className="dash-empty-line">Aucun crédit admin pour l’instant.</p>
+        ) : (
+          <ul className="dash-ops is-wide">
+            {grants.map((row) => (
+              <li key={row.id}>
+                <span className="dash-chip is-sell">Crédit</span>
+                <div>
+                  <strong>{formatLudo(row.coins)}</strong>
+                  <small>
+                    {shortAddress(row.address)}
+                    {row.note ? ` · ${row.note}` : ''}
+                    {row.username ? ` · ${row.username}` : ''}
+                  </small>
+                </div>
+                <time dateTime={row.created_at}>{when(row.created_at)}</time>
+              </li>
+            ))}
+          </ul>
+        )}
+      </article>
+    </>
   )
 }
 
@@ -998,6 +1180,14 @@ function Icon({ name }: { name: Page | 'menu' }) {
     return (
       <svg {...common}>
         <path d="M4 7h16M4 12h16M4 17h16" />
+      </svg>
+    )
+  }
+  if (name === 'credit') {
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="12" r="8.2" />
+        <path d="M12 8v8M9.5 10.5c.6-.8 1.5-1.2 2.5-1.2 1.6 0 2.6.8 2.6 2.1 0 2.6-5.1 1.5-5.1 4.1h5.2" />
       </svg>
     )
   }

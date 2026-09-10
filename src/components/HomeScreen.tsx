@@ -3,7 +3,7 @@ import { copyText, canShareText, shareText } from '../identity/copy'
 import { shortAddress } from '../identity/mnemonic'
 import { PALETTE } from '../ludo/board'
 import type { ColorId, PlayerCount } from '../ludo/types'
-import { formatCoins, formatLudo, LUDO_PER_USD, rakePercent, STAKES, winnerPayout, type Stake } from '../ludo/wallet'
+import { formatCoins, formatLudo, rakePercent, STAKES, winnerPayout, type Stake } from '../ludo/wallet'
 import { AudioToggle } from './AudioToggle'
 import { Coins } from './Coins'
 import { Token } from './Token'
@@ -80,7 +80,6 @@ export function HomeScreen({
   color,
   stake,
   coins,
-  kioskName,
   address,
   error,
   mode,
@@ -104,7 +103,6 @@ export function HomeScreen({
   color: ColorId
   stake: Stake
   coins: number
-  kioskName?: string | null
   address: string
   error?: string
   mode: PlayMode
@@ -219,12 +217,7 @@ export function HomeScreen({
         ) : null}
         {error ? <p className="bank-note">{error}</p> : null}
         {needsStake && !canPlay ? (
-          <p className="bank-note">
-            LUDO insuffisant.{' '}
-            <button type="button" className="text-link" onClick={() => setSettings(true)}>
-              Recharger
-            </button>
-          </p>
+          <p className="bank-note">LUDO insuffisant pour cette mise.</p>
         ) : null}
 
         <div className="mode-grid">
@@ -394,29 +387,8 @@ export function HomeScreen({
               ) : null}
             </div>
 
-            <p className="set-label">Recharger / encaisser</p>
-            <ul className="how-steps how-steps--set">
-              <li>
-                <strong>USDT</strong> — bot Telegram : /recharge et /retrait.
-              </li>
-              <li>
-                <strong>Espèces</strong> — centre de recharge
-                {kioskName ? (
-                  <>
-                    {' '}
-                    (<em>{kioskName}</em> pour encaisser)
-                  </>
-                ) : (
-                  ', même centre pour encaisser'
-                )}
-                .
-              </li>
-            </ul>
-
             {needsStake ? (
-              <p className="field__hint">
-                Maison {rakePercent()} % · {LUDO_PER_USD} LUDO = 1 USDT
-              </p>
+              <p className="field__hint">Maison {rakePercent()} % du pot en match et salon.</p>
             ) : (
               <p className="field__hint">Solo : le solde ne bouge pas.</p>
             )}

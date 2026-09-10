@@ -112,7 +112,7 @@ export async function initDb() {
       throw first.cause ? error : first
     }
   }
-  await pool.query(`
+  const schema = `
     CREATE TABLE IF NOT EXISTS wallets (
       address TEXT PRIMARY KEY,
       token_hash TEXT NOT NULL,
@@ -236,7 +236,36 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS center_apps_status ON center_apps (status, created_at DESC);
     CREATE UNIQUE INDEX IF NOT EXISTS center_apps_one_pending
       ON center_apps (address) WHERE status = 'pending';
-  `)
+
+    CREATE TABLE IF NOT EXISTS admin_grants (
+      id TEXT PRIMARY KEY,
+      admin_id INTEGER REFERENCES admins(id),
+      address TEXT NOT NULL,
+      coins INTEGER NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS admin_grants_created ON admin_grants (created_at DESC);
+  `
+  const client = await pool.connect()
+  try {
+    await client.query('SELECT pg_advisory_lock(728401)')
+    for (const text of schema.split(';').map((part) => part.trim()).filter(Boolean)) {
+      try {
+        await client.query(text)
+      } catch (error) {
+        if (error.code === '23505' || error.code === '42P07') continue
+        throw error
+      }
+    }
+  } finally {
+    try {
+      await client.query('SELECT pg_advisory_unlock(728401)')
+    } catch {
+      /* ignore */
+    }
+    client.release()
+  }
   await importSqliteIfEmpty()
 }
 

@@ -204,6 +204,39 @@ export function rejectCenterApp(token: string, id: number) {
   )
 }
 
+export type AdminWallet = {
+  address: string
+  coins: number
+  kioskName: string | null
+  kioskStatus: string | null
+  playing: boolean
+}
+
+export type AdminGrant = {
+  id: string
+  address: string
+  coins: number
+  note: string
+  created_at: string
+  username?: string | null
+}
+
+export function lookupAdminWallet(token: string, address: string) {
+  return apiRequest<AdminWallet>(`/api/admin/wallet/${encodeURIComponent(address)}`, {}, token)
+}
+
+export function creditWallet(token: string, address: string, coins: number, note = '') {
+  return apiRequest<{ address: string; coins: number; balance: number; kioskName: string | null; note: string }>(
+    '/api/admin/credit',
+    { method: 'POST', body: JSON.stringify({ address, coins, note }) },
+    token,
+  )
+}
+
+export function listGrants(token: string) {
+  return apiRequest<{ grants: AdminGrant[] }>('/api/admin/grants', {}, token)
+}
+
 export function kioskLogin(username: string, password: string) {
   return apiRequest<{ token: string; name: string; address: string; coins: number }>('/api/kiosk/login', {
     method: 'POST',

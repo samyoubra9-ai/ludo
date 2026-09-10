@@ -1,6 +1,7 @@
 export interface LocalSession {
   address: string
   token: string
+  loginToken?: string
 }
 
 const SESSION_KEY = 'ludo-session-v2'
