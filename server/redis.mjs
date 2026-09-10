@@ -25,13 +25,24 @@ export function serverId() {
 
 export async function connectRedis() {
   if (!REDIS_URL || client) return redisEnabled()
-  client = createClient({ url: REDIS_URL })
-  client.on('error', (err) => console.error('Redis:', err.message))
-  await client.connect()
-  sub = client.duplicate()
-  sub.on('error', (err) => console.error('Redis sub:', err.message))
-  await sub.connect()
-  return true
+  let lastError
+  for (let i = 0; i < 10; i += 1) {
+    try {
+      client = createClient({ url: REDIS_URL })
+      client.on('error', (err) => console.error('Redis:', err.message))
+      await client.connect()
+      sub = client.duplicate()
+      sub.on('error', (err) => console.error('Redis sub:', err.message))
+      await sub.connect()
+      return true
+    } catch (error) {
+      lastError = error
+      client = null
+      sub = null
+      await new Promise((resolve) => setTimeout(resolve, 400))
+    }
+  }
+  throw lastError
 }
 
 function roomKey(code) {

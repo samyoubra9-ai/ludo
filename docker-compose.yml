@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: ludo
       POSTGRES_DB: ludo
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -14,12 +14,19 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     command: redis-server --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
 
   api:
     build: .
@@ -31,6 +38,7 @@ services:
       PORT: "8787"
       PUBLIC_URL: ${PUBLIC_URL:-}
       TELEGRAM_DISABLE: "1"
+      EMBEDDED_PG: "0"
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
     volumes:
       - ./data:/app/data
@@ -40,7 +48,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
+    restart: unless-stopped
 
   bot:
     build: .
@@ -50,6 +59,7 @@ services:
       REDIS_URL: redis://redis:6379
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+      EMBEDDED_PG: "0"
     volumes:
       - ./data:/app/data
       - ./ludo.json:/app/ludo.json:ro
@@ -58,8 +68,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
-    restart: on-failure
+        condition: service_healthy
+    restart: unless-stopped
 
   lb:
     image: nginx:alpine
@@ -69,6 +79,7 @@ services:
       - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - api
+    restart: unless-stopped
 
 volumes:
   pgdata:
