@@ -1,6 +1,6 @@
 import { db } from './db.mjs'
 import { setTelegramBotUsername } from './config.mjs'
-import { GAME_ASSET, PACKS, ludoForUsd } from './economy.mjs'
+import { GAME_ASSET, PACKS, formatLudo, ludoFromUnit } from './economy.mjs'
 import { connectRedis } from './redis.mjs'
 import {
   confirmInvoice,
@@ -120,7 +120,7 @@ function packKeyboard() {
   return {
     inline_keyboard: PACKS.map((pack) => [
       {
-        text: `${pack.name} · ${ludoForUsd(pack.usd).toLocaleString('fr-FR')} ${GAME_ASSET} · ${pack.usd} USDT`,
+        text: `${pack.name} · +${pack.usd} ${GAME_ASSET} · ${pack.usd} USDT`,
         callback_data: `pack:${pack.id}`,
       },
     ]),
@@ -133,7 +133,7 @@ function amountKeyboard(info) {
   for (const tier of info.tiers) {
     if (info.coins < tier.coins) continue
     row.push({
-      text: `${tier.usd} $ → ${tier.netUi} USDT`,
+      text: `${tier.usd} ${GAME_ASSET} → ${tier.netUi} USDT`,
       callback_data: `wd:c:${tier.coins}`,
     })
     if (row.length === 2) {
@@ -143,7 +143,7 @@ function amountKeyboard(info) {
   }
   if (row.length) rows.push(row)
   if (info.coins >= 1) {
-    rows.push([{ text: `Tout · ${info.coins.toLocaleString('fr-FR')} ${GAME_ASSET}`, callback_data: 'wd:all' }])
+    rows.push([{ text: `Tout · ${formatLudo(info.coins)}`, callback_data: 'wd:all' }])
   }
   rows.push([{ text: 'Annuler', callback_data: 'wd:x' }])
   return { inline_keyboard: rows }
@@ -174,7 +174,7 @@ function shortSol(value) {
 function withdrawQuoteText(dest, quote, sol) {
   return [
     '<b>Confirmation de retrait</b>',
-    `−${quote.coins.toLocaleString('fr-FR')} ${GAME_ASSET}`,
+    `−${formatLudo(quote.coins)}`,
     `Vous recevez <b>${esc(quote.netUi)} ${esc(sol.asset || 'USDT')}</b>`,
     'Sans frais : 1 pour 1.',
     '',
@@ -190,7 +190,7 @@ function withdrawQuoteText(dest, quote, sol) {
 
 function helpText() {
   return [
-    '<b>Guichet LUDO</b>',
+    '<b>Guichet Ł</b>',
     'Les paiements se font ici. Le jeu ne traite pas l’argent.',
     '',
     '1. Envoyez votre identifiant du jeu (0x…)',
@@ -210,7 +210,7 @@ function accountText(wallet) {
   return [
     '<b>Compte lié</b>',
     `Identifiant : <code>${esc(wallet.address)}</code>`,
-    `Solde : <b>${Number(wallet.coins).toLocaleString('fr-FR')} ${GAME_ASSET}</b>`,
+    `Solde : <b>${formatLudo(wallet.coins)}</b>`,
     '',
     '/recharge pour créditer · /retrait pour recevoir l’USDT.',
     '/centre pour ouvrir un centre de recharge.',
@@ -221,7 +221,7 @@ function invoiceText(invoice) {
   const sol = solanaConfig()
   const lines = [
     `<b>Offre ${esc(invoice.name)}</b>`,
-    `Vous recevez <b>${Number(invoice.coins).toLocaleString('fr-FR')} ${GAME_ASSET}</b>`,
+    `Vous recevez <b>${formatLudo(invoice.coins)}</b>`,
     '',
     'Versez <b>exactement</b> ce montant :',
     `<code>${esc(invoice.amountUi)}</code> ${esc(invoice.asset || 'USDT')}`,
@@ -247,9 +247,9 @@ async function showPacks(chatId, wallet) {
   await send(
     chatId,
     [
-      `<b>Offres</b> · ${catalog.ludoPerUsd} ${GAME_ASSET} = 1 ${catalog.asset}`,
+      `<b>Offres</b> · 1 ${GAME_ASSET} = 1 ${catalog.asset}`,
       `Compte : <code>${esc(wallet.address)}</code>`,
-      `Solde : ${Number(wallet.coins).toLocaleString('fr-FR')} ${GAME_ASSET}`,
+      `Solde : ${formatLudo(wallet.coins)}`,
       '',
       'Sélectionnez une offre :',
     ].join('\n'),
@@ -276,7 +276,7 @@ async function startWithdraw(telegramId, chatId) {
     return
   }
   if (info.coins < 1) {
-    await send(chatId, `Solde insuffisant (${info.coins} ${GAME_ASSET}). Utilisez /recharge.`)
+    await send(chatId, `Solde insuffisant (${formatLudo(info.coins)}). Utilisez /recharge.`)
     return
   }
   setFlow(telegramId, { kind: 'withdraw_dest' })
@@ -284,8 +284,8 @@ async function startWithdraw(telegramId, chatId) {
     chatId,
     [
       '<b>Retrait USDT</b>',
-      `Solde : <b>${info.coins.toLocaleString('fr-FR')} ${GAME_ASSET}</b>`,
-      `${info.ludoPerUsd} ${GAME_ASSET} = 1 ${info.asset} · retrait sans frais`,
+      `Solde : <b>${formatLudo(info.coins)}</b>`,
+      `1 ${GAME_ASSET} = 1 ${info.asset} · retrait sans frais`,
       '',
       'Envoyez l’adresse de votre <b>portefeuille Solana</b> (pas l’identifiant 0x du jeu).',
     ].join('\n'),
@@ -305,9 +305,9 @@ async function askWithdrawAmount(telegramId, chatId, dest) {
     chatId,
     [
       `Adresse : <code>${esc(dest)}</code>`,
-      `Solde : ${info.coins.toLocaleString('fr-FR')} ${GAME_ASSET}`,
+      `Solde : ${formatLudo(info.coins)}`,
       '',
-      'Choisissez un montant, ou envoyez un nombre en LUDO.',
+      `Choisissez un montant, ou envoyez un nombre en ${GAME_ASSET}.`,
     ].join('\n'),
     { reply_markup: amountKeyboard(info) },
   )
@@ -323,11 +323,11 @@ async function previewWithdraw(telegramId, chatId, coins, messageId) {
   }
   const amount = Math.floor(Number(coins))
   if (!Number.isInteger(amount) || amount < 1) {
-    await send(chatId, 'Montant invalide. Envoyez un nombre de LUDO, ou utilisez un bouton.')
+    await send(chatId, `Montant invalide. Envoyez un nombre en ${GAME_ASSET}, ou utilisez un bouton.`)
     return
   }
   if (amount > Number(wallet.coins)) {
-    await send(chatId, `Solde disponible : ${Number(wallet.coins).toLocaleString('fr-FR')} ${GAME_ASSET}.`)
+    await send(chatId, `Solde disponible : ${formatLudo(wallet.coins)}.`)
     return
   }
   const quote = quoteWithdraw(amount)
@@ -377,9 +377,9 @@ async function executeWithdraw(telegramId, chatId, messageId) {
       chatId,
       [
         '<b>Retrait effectué</b>',
-        `−${receipt.withdrawal.coins.toLocaleString('fr-FR')} ${GAME_ASSET}`,
+        `−${formatLudo(receipt.withdrawal.coins)}`,
         `${esc(receipt.withdrawal.netUi)} ${esc(receipt.withdrawal.asset)} vers <code>${esc(receipt.withdrawal.dest)}</code>`,
-        `Nouveau solde : <b>${Number(receipt.coins).toLocaleString('fr-FR')} ${GAME_ASSET}</b>`,
+        `Nouveau solde : <b>${formatLudo(receipt.coins)}</b>`,
         '',
         `Tx : <a href="${esc(explorerTx(sol.cluster, sig))}">${esc(shortSol(sig))}</a>`,
       ].join('\n'),
@@ -387,7 +387,7 @@ async function executeWithdraw(telegramId, chatId, messageId) {
   } catch (error) {
     setFlow(telegramId, { ...flow, busy: false })
     console.error('Telegram withdraw:', error.message)
-    await send(chatId, esc(error.message || 'Retrait refusé. Le solde LUDO n’a pas été modifié, ou a été rétabli.'))
+    await send(chatId, esc(error.message || 'Retrait refusé. Le solde n’a pas été modifié, ou a été rétabli.'))
   }
 }
 
@@ -432,8 +432,8 @@ async function handleSignature(telegramId, chatId, signature) {
       chatId,
       [
         '<b>Paiement confirmé</b>',
-        `+${Number(receipt.order.coins).toLocaleString('fr-FR')} ${GAME_ASSET}`,
-        `Nouveau solde : <b>${Number(next?.coins ?? receipt.coins).toLocaleString('fr-FR')} ${GAME_ASSET}</b>`,
+        `+${formatLudo(receipt.order.coins)}`,
+        `Nouveau solde : <b>${formatLudo(next?.coins ?? receipt.coins)}</b>`,
         '',
         'Le crédit est disponible dans le jeu.',
       ].join('\n'),
@@ -619,10 +619,10 @@ async function handleMessage(msg) {
     }
     const asNumber = Number(String(text).replace(/\s/g, '').replace(',', '.'))
     if (Number.isFinite(asNumber) && asNumber >= 1) {
-      await previewWithdraw(fromId, chatId, Math.floor(asNumber))
+      await previewWithdraw(fromId, chatId, ludoFromUnit(asNumber))
       return
     }
-    await send(chatId, 'Envoyez un montant en LUDO, ou utilisez un bouton. /annuler pour arrêter.')
+    await send(chatId, `Envoyez un montant en ${GAME_ASSET}, ou utilisez un bouton. /annuler pour arrêter.`)
     return
   }
 

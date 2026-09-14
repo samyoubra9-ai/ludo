@@ -1,4 +1,4 @@
-import { rakeOf, winnerPayout } from './economy.mjs'
+import { formatLudo, rakeOf, winnerPayout } from './economy.mjs'
 
 export const COLORS = ['red', 'green', 'yellow', 'blue']
 export const OPPOSITE = { red: 'yellow', yellow: 'red', green: 'blue', blue: 'green' }
@@ -286,7 +286,7 @@ export function createGameFromPlayers(id, players, stake, firstColor) {
     dice: 6,
     sixes: 0,
     movable: [],
-    message: `${starter.name}, lance le dé. Mise ${stake} LUDO · pot ${pot} LUDO.`,
+    message: `${starter.name}, lance le dé. Mise ${formatLudo(stake)} · pot ${formatLudo(pot)}.`,
     winner: null,
     boxedMisses: { ...EMPTY_MISSES },
     stake,
@@ -392,7 +392,7 @@ export function applyMove(state, tokenId) {
       movable: [],
       message:
         moved.pot > 0
-          ? `${winner.name} a ramené ses 4 pions. Pot ${moved.pot} LUDO · maison ${rakeOf(moved.pot)} · net ${winnerPayout(moved.pot)}.`
+          ? `${winner.name} a ramené ses 4 pions. Pot ${formatLudo(moved.pot)} · maison ${formatLudo(rakeOf(moved.pot))} · net ${formatLudo(winnerPayout(moved.pot))}.`
           : `${winner.name} a ramené ses 4 pions !`,
     }
   }

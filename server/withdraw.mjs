@@ -121,7 +121,7 @@ export async function requestWithdraw(address, dest, amount) {
         .prepare('UPDATE wallets SET coins = coins - ?, updated_at = ? WHERE address = ? AND coins >= ?')
         .run(coins, nowIso(), address, coins)
       if (!cut.changes) {
-        throw Object.assign(new Error('LUDO insuffisant.'), { status: 400 })
+        throw Object.assign(new Error('Solde insuffisant.'), { status: 400 })
       }
 
       const wallet = await db.prepare('SELECT coins FROM wallets WHERE address = ?').get(address)
@@ -170,7 +170,7 @@ export async function requestWithdraw(address, dest, amount) {
         .prepare("UPDATE withdrawals SET status = 'failed', error = ? WHERE id = ?")
         .run(String(error.message || 'échec').slice(0, 280), id)
     })
-    throw Object.assign(new Error(error.message || 'Retrait échoué, LUDO recrédités.'), {
+    throw Object.assign(new Error(error.message || 'Retrait échoué, solde rétabli.'), {
       status: error.status || 502,
     })
   }

@@ -1,7 +1,7 @@
 import { seatPlayers } from './board'
 import { needsEntry } from './dice'
 import { cellOf, isSafeCell, occupantsOnCell, STRETCH_MAX, tokenCell, TRACK_MAX } from './path'
-import { rakeOf, winnerPayout } from './wallet'
+import { formatLudo, rakeOf, winnerPayout } from './wallet'
 import type { ColorId, GameState, Player, PlayerCount, Token, TokenLoc } from './types'
 
 const EMPTY_MISSES: Record<ColorId, number> = {
@@ -157,7 +157,7 @@ export function createGame(
     sixes: 0,
     movable: [],
     message: stake
-      ? `${you.name}, lance le dé. Mise ${stake} LUDO · pot ${pot} LUDO.`
+      ? `${you.name}, lance le dé. Mise ${formatLudo(stake)} · pot ${formatLudo(pot)}.`
       : `${you.name}, lance le dé. Partie libre, sans mise.`,
     winner: null,
     boxedMisses: { ...EMPTY_MISSES },
@@ -263,7 +263,7 @@ export function applyMove(state: GameState, tokenId: string): GameState {
       movable: [],
       message:
         moved.pot > 0
-          ? `${winner.name} a ramené ses 4 pions. Pot ${moved.pot} LUDO · maison ${rakeOf(moved.pot)} · net ${winnerPayout(moved.pot)}.`
+          ? `${winner.name} a ramené ses 4 pions. Pot ${formatLudo(moved.pot)} · maison ${formatLudo(rakeOf(moved.pot))} · net ${formatLudo(winnerPayout(moved.pot))}.`
           : `${winner.name} a ramené ses 4 pions !`,
     }
   }

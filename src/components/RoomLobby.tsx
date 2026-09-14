@@ -147,7 +147,7 @@ export function RoomLobby({
           {match
             ? counting
               ? 'Table complète. Ça commence.'
-              : `Dès que ${room.count} joueurs réels sont à table, la partie lance. Tes LUDO restent en jeu.`
+              : `Dès que ${room.count} joueurs réels sont à table, la partie lance. Tes Ł restent en jeu.`
             : copied === 'code'
               ? 'Code copié.'
               : 'Partage le code. Tes amis tapent ces 4 lettres.'}
@@ -243,9 +243,9 @@ export function RoomLobby({
             <p>
               {match
                 ? counting
-                  ? 'Le compte à rebours s’annule. Tes LUDO restent sur ton compte.'
-                  : 'Tu sors de la file. Tes LUDO restent sur ton compte.'
-                : 'Tu quittes ce salon. Tes LUDO restent sur ton compte, la partie n’a pas encore commencé.'}
+                  ? 'Le compte à rebours s’annule. Tes Ł restent sur ton compte.'
+                  : 'Tu sors de la file. Tes Ł restent sur ton compte.'
+                : 'Tu quittes ce salon. Tes Ł restent sur ton compte, la partie n’a pas encore commencé.'}
             </p>
             <div className="leave-actions">
               <button type="button" className="btn-ghost btn-ghost--wide" onClick={() => setAskLeave(false)}>

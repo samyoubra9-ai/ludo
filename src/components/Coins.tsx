@@ -1,4 +1,4 @@
-import { formatCoins } from '../ludo/wallet'
+import { formatUnit, GAME_ASSET } from '../ludo/wallet'
 
 export function CoinMark() {
   return (
@@ -14,8 +14,8 @@ export function Coins({ value, label }: { value: number; label?: string }) {
   return (
     <span className="coins">
       <CoinMark />
-      <strong>{formatCoins(value)}</strong>
-      <small>{label ? `${label} · LUDO` : 'LUDO'}</small>
+      <strong>{formatUnit(value)}</strong>
+      <small>{label ? `${label} · ${GAME_ASSET}` : GAME_ASSET}</small>
     </span>
   )
 }

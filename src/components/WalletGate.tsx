@@ -108,7 +108,7 @@ export function WalletGate({
           <ol className="how-steps">
             <li>Crée ton compte (1 minute).</li>
             <li>Note tes 12 mots : uniquement si tu changes de téléphone.</li>
-            <li>Le solo est gratuit. En match, tu joues avec tes LUDO.</li>
+            <li>Le solo est gratuit. En match, tu joues avec tes Ł.</li>
           </ol>
           {error && <p className="bank-note">{error}</p>}
           <div className="home__actions" style={{ display: 'grid', gap: '0.6rem', marginTop: '1.05rem' }}>
@@ -119,7 +119,7 @@ export function WalletGate({
               J’ai déjà un compte
             </button>
           </div>
-          <p className="field__hint">Le solo contre les bots est gratuit, sans LUDO.</p>
+          <p className="field__hint">Le solo contre les bots est gratuit, sans mise.</p>
         </div>
       )}
 
@@ -200,7 +200,7 @@ export function WalletGate({
           }}
         >
           <p className="logo__tag" style={{ marginTop: 0 }}>
-            Nouveau téléphone ? Colle tes 12 mots. Ton ID et tes LUDO reviennent.
+            Nouveau téléphone ? Colle tes 12 mots. Ton ID et tes Ł reviennent.
           </p>
           <label className="field">
             <span>Tes 12 mots</span>

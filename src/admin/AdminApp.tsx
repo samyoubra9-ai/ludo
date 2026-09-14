@@ -30,7 +30,7 @@ import {
   type DeskAgent,
 } from '../api/desk'
 import { shortAddress } from '../identity/mnemonic'
-import { formatCoins, formatDa, formatLudo, LUDO_PER_USD, rakePercent, usdFromLudo } from '../ludo/wallet'
+import { formatDa, formatLudo, GAME_ASSET, ludoFromUnit, rakePercent, usdFromLudo } from '../ludo/wallet'
 import '../App.css'
 import './admin.css'
 import { InstallPwa } from '../components/InstallPwa'
@@ -42,7 +42,7 @@ const PAGES: Page[] = ['overview', 'kiosks', 'apps', 'new', 'activity', 'profit'
 
 const NAV: { id: Page; label: string; hint: string }[] = [
   { id: 'overview', label: 'Vue d’ensemble', hint: 'Stock et flux' },
-  { id: 'credit', label: 'Envoyer LUDO', hint: 'Joueur ou centre' },
+  { id: 'credit', label: 'Envoyer Ł', hint: 'Joueur ou centre' },
   { id: 'kiosks', label: 'Centres', hint: 'Comptoirs validés' },
   { id: 'apps', label: 'Demandes', hint: 'Candidatures' },
   { id: 'profit', label: 'Bénéfices', hint: 'Maison et caisses' },
@@ -530,8 +530,9 @@ function Credit({ token, agents }: { token: string; agents: DeskAgent[] }) {
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
   const [busy, setBusy] = useState(false)
-  const coins = Math.floor(Number(amount))
-  const amountOk = Number.isInteger(coins) && coins > 0 && coins <= 1_000_000
+  const units = Math.floor(Number(amount))
+  const coins = ludoFromUnit(units)
+  const amountOk = Number.isInteger(units) && units >= 1 && units <= 10_000
   const centres = useMemo(
     () => [...agents].sort((a, b) => a.name.localeCompare(b.name, 'fr')),
     [agents],
@@ -605,7 +606,7 @@ function Credit({ token, agents }: { token: string; agents: DeskAgent[] }) {
         <ol className="dash-steps">
           <li>Clique un centre enregistré pour l’alimenter. Pas besoin de recoller son ID.</li>
           <li>Pour un joueur, colle encore l’ID 0x…</li>
-          <li>Les LUDO sont crédités tout de suite. Ça ne sort pas du stock d’une caisse.</li>
+          <li>Les Ł sont crédités tout de suite. Ça ne sort pas du stock d’une caisse.</li>
         </ol>
         <form
           className="dash-panel dash-form"
@@ -655,23 +656,23 @@ function Credit({ token, agents }: { token: string; agents: DeskAgent[] }) {
                 {wallet.playing ? ' · en partie' : ''}
               </p>
               <label className="field">
-                <span>LUDO à envoyer</span>
+                <span>Ł à envoyer</span>
                 <input
                   inputMode="numeric"
-                  placeholder="5000"
+                  placeholder="10"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ''))}
                 />
               </label>
               <div className="pills pills--stakes desk__pills">
-                {[500, 1000, 2000, 5000, 10000, 50000].map((n) => (
+                {[1, 2, 5, 10, 20, 50, 100].map((n) => (
                   <button
                     key={n}
                     type="button"
                     className={Number(amount) === n ? 'pill is-on' : 'pill'}
                     onClick={() => setAmount(String(n))}
                   >
-                    {formatCoins(n)}
+                    {n} {GAME_ASSET}
                   </button>
                 ))}
               </div>
@@ -746,11 +747,11 @@ function Overview({
     <>
       <section className="dash-kpis">
         <Kpi label="Kiosques actifs" value={String(kiosks?.active ?? 0)} hint={`${kiosks?.frozen ?? 0} gelé(s) · ${kiosks?.total ?? 0} au total`} />
-        <Kpi label="Stock réseau" value={formatCoins(kiosks?.stock ?? 0)} hint="LUDO chez les kiosques" />
+        <Kpi label="Stock réseau" value={formatLudo(kiosks?.stock ?? 0)} hint="Ł chez les kiosques" />
         <Kpi
           label="Maison (rake)"
           value={formatLudo(overview?.house?.rakeLudo ?? 0)}
-          hint={`${formatCoins(overview?.house?.rakeLudoToday ?? 0)} LUDO / 24 h · ${overview?.house?.wins ?? 0} victoires`}
+          hint={`${formatLudo(overview?.house?.rakeLudoToday ?? 0)} / 24 h · ${overview?.house?.wins ?? 0} victoires`}
         />
         <Kpi
           label="Bénéfice kiosques"
@@ -849,7 +850,7 @@ function Profit({
       </section>
       <article className="dash-panel">
         <p className="dash-empty-line">
-          La maison gagne le rake des parties (LUDO brûlés, les kiosques doivent se restocker). Le kiosque gagne en
+          La maison gagne le rake des parties (Ł prélevés, les kiosques doivent se restocker). Le kiosque gagne en
           dinars : il vend plus cher qu’il ne rachète. Les tarifs se règlent dans chaque caisse.
         </p>
       </article>
@@ -881,7 +882,7 @@ function Profit({
                     </td>
                     <td>
                       {formatDa(agent.sellDa || 0)} / {formatDa(agent.buyDa || 0)}
-                      <small className="dash-muted">pour {LUDO_PER_USD} LUDO</small>
+                      <small className="dash-muted">pour 1 {GAME_ASSET}</small>
                     </td>
                     <td>{formatDa(agent.profitDa || 0)}</td>
                   </tr>

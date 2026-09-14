@@ -11,7 +11,7 @@ import {
   rollDie,
   skipOutPlayers,
 } from './ludo.mjs'
-import { isAllowedStake, rakeOf, winnerPayout } from './economy.mjs'
+import { formatLudo, isAllowedStake, rakeOf, winnerPayout } from './economy.mjs'
 import { bus } from './bus.mjs'
 import {
   acquireLock,
@@ -81,7 +81,7 @@ async function deductStake(address, stake, matchId, players) {
     const cut = await db
       .prepare('UPDATE wallets SET coins = coins - ?, updated_at = ? WHERE address = ? AND coins >= ?')
       .run(stake, nowIso(), address, stake)
-    if (!cut.changes) throw new Error('LUDO insuffisant.')
+    if (!cut.changes) throw new Error('Solde insuffisant.')
     await db
       .prepare('INSERT INTO matches (id, address, stake, players, settled, created_at) VALUES (?, ?, ?, ?, 0, ?)')
       .run(matchId, address, stake, players, nowIso())
@@ -263,7 +263,7 @@ export async function createRoom({ address, name, color, count, stake, kind = 'p
   }
   const hostWallet = await getWallet(address)
   if (!hostWallet || hostWallet.coins < stake) {
-    throw Object.assign(new Error('LUDO insuffisant.'), { status: 400 })
+    throw Object.assign(new Error('Solde insuffisant.'), { status: 400 })
   }
 
   const colors = colorsForCount(count, color)
@@ -308,7 +308,7 @@ export async function matchmake({ address, name, color, count, stake }) {
   }
   const seeker = await getWallet(address)
   if (!seeker || seeker.coins < stake) {
-    throw Object.assign(new Error('LUDO insuffisant.'), { status: 400 })
+    throw Object.assign(new Error('Solde insuffisant.'), { status: 400 })
   }
 
   const existing = await activeRoomFor(address)
@@ -375,7 +375,7 @@ export async function joinRoom({ code, address, name, color }) {
 
     const joiner = await getWallet(address)
     if (!joiner || joiner.coins < room.stake) {
-      throw Object.assign(new Error('LUDO insuffisant pour cette mise.'), { status: 400 })
+      throw Object.assign(new Error('Solde insuffisant pour cette mise.'), { status: 400 })
     }
 
     room.seats = room.seats.map((s) =>
@@ -458,7 +458,7 @@ async function launchGame(room, { fillEmpty = true } = {}) {
   for (const seat of room.seats) {
     if (seat.kind !== 'human' || !seat.address) continue
     if (((await getWallet(seat.address))?.coins ?? 0) < room.stake) {
-      throw Object.assign(new Error(`${seat.name} n’a plus assez de LUDO.`), { status: 400 })
+      throw Object.assign(new Error(`${seat.name} n’a plus assez de Ł.`), { status: 400 })
     }
   }
 
@@ -606,7 +606,7 @@ async function awardForfeitWin(room) {
     winner: winner.color,
     phase: 'ended',
     movable: [],
-    message: `${winner.name} gagne par forfait. Pot ${room.game.pot} LUDO · maison ${rakeOf(room.game.pot)} · net ${winnerPayout(room.game.pot)}.`,
+    message: `${winner.name} gagne par forfait. Pot ${formatLudo(room.game.pot)} · maison ${formatLudo(rakeOf(room.game.pot))} · net ${formatLudo(winnerPayout(room.game.pot))}.`,
   }
   room.forfeitWinAt = 0
   await settleRoom(room)

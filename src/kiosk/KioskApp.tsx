@@ -17,7 +17,7 @@ import {
   type KioskOp,
 } from '../api/desk'
 import { shortAddress } from '../identity/mnemonic'
-import { daFor, formatCoins, formatDa, formatLudo, LUDO_PER_USD } from '../ludo/wallet'
+import { daFor, formatDa, formatLudo, GAME_ASSET, ludoFromUnit, LUDO_PER_USD, STAKE_UNITS } from '../ludo/wallet'
 import '../App.css'
 import '../admin/admin.css'
 import './kiosk.css'
@@ -305,7 +305,7 @@ function Dashboard({
             <p className="dash-top__kicker">{me.name}</p>
             <h1>{current.label}</h1>
           </div>
-          <p className="till-stock">{formatCoins(me.coins)} LUDO</p>
+          <p className="till-stock">{formatLudo(me.coins)}</p>
           <button type="button" className="dash-ghost" disabled={busy} onClick={() => void onRefresh()}>
             {busy ? 'Maj…' : 'Actualiser'}
           </button>
@@ -356,21 +356,21 @@ function Overview({ me, onPage }: { me: KioskMe; onPage: (page: Page) => void })
   return (
     <>
       <section className="dash-kpis">
-        <Kpi label="Stock caisse" value={formatCoins(me.coins)} hint="LUDO disponibles à vendre" />
+        <Kpi label="Stock caisse" value={formatLudo(me.coins)} hint="Ł disponibles à vendre" />
         <Kpi
-          label="LUDO envoyés"
+          label="Ł envoyés"
           value={formatLudo(me.pnl?.sold ?? 0)}
           hint={`${me.pnl?.sell ?? 0} vente(s) · ${formatLudo(me.pnlToday?.sold ?? 0)} / 24 h`}
         />
         <Kpi
-          label="LUDO rachetés"
+          label="Ł rachetés"
           value={formatLudo(me.pnl?.bought ?? 0)}
           hint={`${me.pnl?.buyback ?? 0} rachat(s) · ${formatLudo(me.pnlToday?.bought ?? 0)} / 24 h`}
         />
         <Kpi
           label="Tarifs"
           value={`${me.sellDa}/${me.buyDa}`}
-          hint={`DA pour ${formatCoins(me.unit || LUDO_PER_USD)} LUDO`}
+          hint={`DA pour 1 ${GAME_ASSET}`}
         />
       </section>
       <section className="dash-split">
@@ -382,9 +382,8 @@ function Overview({ me, onPage }: { me: KioskMe; onPage: (page: Page) => void })
             </button>
           </header>
           <p className="dash-empty-line">
-            Le client vient au comptoir. Tu colles son ID, tu crédites ou tu retires les LUDO, tu gères les dinars en
-            caisse. Tes tarifs : vente {formatDa(me.sellDa)} / rachat {formatDa(me.buyDa)} pour{' '}
-            {formatCoins(me.unit || LUDO_PER_USD)} LUDO.
+            Le client vient au comptoir. Tu colles son ID, tu crédites ou tu retires les Ł, tu gères les dinars en
+            caisse. Tes tarifs : vente {formatDa(me.sellDa)} / rachat {formatDa(me.buyDa)} pour 1 {GAME_ASSET}.
           </p>
         </article>
         <article className="dash-panel">
@@ -430,15 +429,15 @@ function Rates({
   return (
     <>
       <section className="dash-kpis">
-        <Kpi label="LUDO envoyés" value={formatLudo(me.pnl?.sold ?? 0)} hint={`${me.pnl?.sell ?? 0} vente(s)`} />
-        <Kpi label="LUDO rachetés" value={formatLudo(me.pnl?.bought ?? 0)} hint={`${me.pnl?.buyback ?? 0} rachat(s)`} />
+        <Kpi label="Ł envoyés" value={formatLudo(me.pnl?.sold ?? 0)} hint={`${me.pnl?.sell ?? 0} vente(s)`} />
+        <Kpi label="Ł rachetés" value={formatLudo(me.pnl?.bought ?? 0)} hint={`${me.pnl?.buyback ?? 0} rachat(s)`} />
         <Kpi label="Aujourd’hui" value={formatLudo(me.pnlToday?.sold ?? 0)} hint={`${me.today.sell} ventes · ${me.today.buyback} rachats`} />
         <Kpi label="Stock" value={formatLudo(me.coins)} hint="À recharger si ça baisse" />
       </section>
       <div className="dash-form-wrap">
         <ol className="dash-steps">
-          <li>Tu vends {formatCoins(unit)} LUDO contre {formatDa(Number.isInteger(sell) ? sell : 0)} DA (le client paie).</li>
-          <li>Tu rachètes {formatCoins(unit)} LUDO pour {formatDa(Number.isInteger(buy) ? buy : 0)} DA (tu paies le client).</li>
+          <li>Tu vends 1 {GAME_ASSET} contre {formatDa(Number.isInteger(sell) ? sell : 0)} DA (le client paie).</li>
+          <li>Tu rachètes 1 {GAME_ASSET} pour {formatDa(Number.isInteger(buy) ? buy : 0)} DA (tu paies le client).</li>
           <li>Ces prix servent au comptoir. Pas de calcul de gain ici.</li>
         </ol>
         <form
@@ -455,7 +454,7 @@ function Rates({
         >
           <h2>Tes prix au comptoir</h2>
           <label className="field">
-            <span>Vente · DA pour {formatCoins(unit)} LUDO</span>
+            <span>Vente · DA pour 1 {GAME_ASSET}</span>
             <input
               inputMode="numeric"
               required
@@ -465,7 +464,7 @@ function Rates({
             />
           </label>
           <label className="field">
-            <span>Rachat · DA pour {formatCoins(unit)} LUDO</span>
+            <span>Rachat · DA pour 1 {GAME_ASSET}</span>
             <input
               inputMode="numeric"
               required
@@ -577,8 +576,9 @@ function Counter({
   const [pending, setPending] = useState<'sell' | 'buyback' | null>(null)
   const [receipt, setReceipt] = useState('')
 
-  const coins = Math.floor(Number(amount))
-  const amountOk = Number.isInteger(coins) && coins > 0
+  const units = Number(String(amount).replace(',', '.'))
+  const coins = ludoFromUnit(units)
+  const amountOk = Number.isFinite(units) && units > 0 && Number.isInteger(coins) && coins > 0
 
   const findClient = async (value = rawId) => {
     const address = parsePlayerId(value)
@@ -704,28 +704,34 @@ function Counter({
           <article className="dash-panel">
             <h2>Opération</h2>
             <label className="field">
-              <span>Montant LUDO</span>
+              <span>Montant {GAME_ASSET}</span>
               <input
-                inputMode="numeric"
-                pattern="[0-9]*"
-                placeholder="500"
+                inputMode="decimal"
+                placeholder="1"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ''))}
+                onChange={(e) => setAmount(e.target.value.replace(/[^\d.,]/g, ''))}
               />
             </label>
             <div className="pills pills--stakes desk__pills">
-              {(me.stakes.length ? me.stakes : [100, 200, 500, 1000, 2000]).map((stake) => (
+              {STAKE_UNITS.map((unit) => (
                 <button
-                  key={stake}
+                  key={unit}
                   type="button"
-                  className={Number(amount) === stake ? 'pill is-on' : 'pill'}
-                  onClick={() => setAmount(String(stake))}
+                  className={units === unit ? 'pill is-on' : 'pill'}
+                  onClick={() => setAmount(String(unit))}
                 >
-                  {formatCoins(stake)}
+                  {unit} {GAME_ASSET}
                 </button>
               ))}
               {client.canBuyback && client.coins > 0 ? (
-                <button type="button" className="pill" onClick={() => setAmount(String(client.coins))}>
+                <button
+                  type="button"
+                  className="pill"
+                  onClick={() => {
+                    const exact = client.coins / LUDO_PER_USD
+                    setAmount(Number.isInteger(exact) ? String(exact) : String(Math.round(exact * 1e6) / 1e6))
+                  }}
+                >
                   Tout
                 </button>
               ) : null}
@@ -733,7 +739,7 @@ function Counter({
             <p className="field__hint">
               {amountOk
                 ? `Vente ${formatDa(daFor(coins, me.sellDa, me.unit))} · rachat ${formatDa(daFor(coins, me.buyDa, me.unit))}`
-                : `Tarifs : vente ${formatDa(me.sellDa)} / rachat ${formatDa(me.buyDa)} pour ${formatCoins(me.unit || LUDO_PER_USD)} LUDO`}
+                : `Tarifs : vente ${formatDa(me.sellDa)} / rachat ${formatDa(me.buyDa)} pour 1 ${GAME_ASSET}`}
             </p>
             <div className="till-actions">
               <button
@@ -743,7 +749,7 @@ function Counter({
                 onClick={() => setPending('sell')}
               >
                 Vendre
-                <small>Crédit LUDO · encaisser DA</small>
+                <small>Crédit Ł · encaisser DA</small>
               </button>
               <button
                 type="button"
@@ -752,7 +758,7 @@ function Counter({
                 onClick={() => setPending('buyback')}
               >
                 Racheter
-                <small>Retirer LUDO · rendre DA</small>
+                <small>Retirer Ł · rendre DA</small>
               </button>
             </div>
             {pending && amountOk ? (

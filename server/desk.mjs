@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { db, tx } from './db.mjs'
-import { GAME_RAKE_BPS, LUDO_PER_USD, STAKES } from './economy.mjs'
+import { GAME_ASSET, GAME_RAKE_BPS, LUDO_PER_USD, STAKES } from './economy.mjs'
 import { checkPassword, hashPassword, newSessionToken } from './pass.mjs'
 import { PUBLIC_URL, publicUrls } from './config.mjs'
 import { isPlaying } from './rooms.mjs'
@@ -257,8 +257,8 @@ async function creditWallet(admin, rawAddress, rawCoins, rawNote) {
   if (!validAddress(address)) {
     throw Object.assign(new Error('Colle un ID joueur 0x…'), { status: 400 })
   }
-  if (!Number.isInteger(coins) || coins < 1 || coins > 1_000_000) {
-    throw Object.assign(new Error('Montant : 1 à 1 000 000 LUDO.'), { status: 400 })
+  if (!Number.isInteger(coins) || coins < 1 || coins > LUDO_PER_USD * 10_000) {
+    throw Object.assign(new Error(`Montant : 1 à 10 000 ${GAME_ASSET}.`), { status: 400 })
   }
   return tx(async () => {
     const wallet = await db.prepare('SELECT address, coins FROM wallets WHERE address = ? FOR UPDATE').get(address)
@@ -779,7 +779,7 @@ async function sellToClient(agent, rawAddress, rawCoins) {
   const coins = Math.floor(Number(rawCoins))
   if (!validAddress(address)) throw Object.assign(new Error('ID joueur invalide.'), { status: 400 })
   if (!Number.isInteger(coins) || coins < 1) {
-    throw Object.assign(new Error('Montant LUDO invalide.'), { status: 400 })
+    throw Object.assign(new Error('Montant invalide.'), { status: 400 })
   }
   if (address === agent.address) {
     throw Object.assign(new Error('Tu ne peux pas te vendre à toi-même.'), { status: 400 })
@@ -828,7 +828,7 @@ async function buyFromClient(agent, rawAddress, rawCoins) {
   const coins = Math.floor(Number(rawCoins))
   if (!validAddress(address)) throw Object.assign(new Error('ID joueur invalide.'), { status: 400 })
   if (!Number.isInteger(coins) || coins < 1) {
-    throw Object.assign(new Error('Montant LUDO invalide.'), { status: 400 })
+    throw Object.assign(new Error('Montant invalide.'), { status: 400 })
   }
   if (address === agent.address) {
     throw Object.assign(new Error('Opération invalide.'), { status: 400 })
@@ -850,7 +850,7 @@ async function buyFromClient(agent, rawAddress, rawCoins) {
       })
     }
     if (client.coins < coins) {
-      throw Object.assign(new Error('Le client n’a pas assez de LUDO.'), { status: 400 })
+      throw Object.assign(new Error('Le client n’a pas assez de Ł.'), { status: 400 })
     }
     const da = daFor(coins, rates?.buy_da ?? LUDO_PER_USD)
     const left = client.coins - coins

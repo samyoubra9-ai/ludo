@@ -3,7 +3,7 @@ import { copyText, canShareText, shareText } from '../identity/copy'
 import { shortAddress } from '../identity/mnemonic'
 import { PALETTE } from '../ludo/board'
 import type { ColorId, PlayerCount } from '../ludo/types'
-import { formatCoins, formatLudo, rakePercent, STAKES, winnerPayout, type Stake } from '../ludo/wallet'
+import { formatLudo, rakePercent, STAKES, winnerPayout, type Stake } from '../ludo/wallet'
 import { AudioToggle } from './AudioToggle'
 import { Coins } from './Coins'
 import { Token } from './Token'
@@ -222,7 +222,7 @@ export function HomeScreen({
         ) : null}
         {error ? <p className="bank-note">{error}</p> : null}
         {needsStake && !canPlay ? (
-          <p className="bank-note">LUDO insuffisant pour cette mise.</p>
+          <p className="bank-note">Solde insuffisant pour cette mise.</p>
         ) : null}
 
         <div className="mode-grid">
@@ -306,7 +306,7 @@ export function HomeScreen({
                   disabled={coins < value}
                   onClick={() => onStake(value)}
                 >
-                  {formatCoins(value)}
+                  {formatLudo(value)}
                 </button>
               ))}
             </div>
@@ -321,7 +321,7 @@ export function HomeScreen({
         {mode === 'lan' ? (
           <>
             <button type="button" className={`btn-play ${canPlay ? 'is-ready' : ''}`} disabled={!canPlay} onClick={onCreateRoom}>
-              {canPlay ? playLabel : 'LUDO insuffisant'}
+              {canPlay ? playLabel : 'Solde insuffisant'}
             </button>
             <div className="join-box">
               <span>Rejoindre avec un code</span>
@@ -348,7 +348,7 @@ export function HomeScreen({
           </>
         ) : (
           <button type="submit" className={`btn-play ${canPlay ? 'is-ready' : ''}`} disabled={!canPlay}>
-            {canPlay ? playLabel : 'LUDO insuffisant'}
+            {canPlay ? playLabel : 'Solde insuffisant'}
           </button>
         )}
       </form>

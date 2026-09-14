@@ -5,7 +5,7 @@ import { PALETTE } from '../ludo/board'
 import { rollDie } from '../ludo/dice'
 import { applyMove, applyRoll, currentPlayer, pickBotMove } from '../ludo/engine'
 import type { ColorId, GameState } from '../ludo/types'
-import { formatCoins, formatLudo, rakeOf, rakePercent, winnerPayout } from '../ludo/wallet'
+import { formatLudo, rakeOf, rakePercent, winnerPayout } from '../ludo/wallet'
 import { AudioToggle } from './AudioToggle'
 import { Board } from './Board'
 import { Coins } from './Coins'
@@ -324,7 +324,7 @@ export function GameScreen({
                       ? 'Peut revenir…'
                       : seat.out
                         ? 'Parti · mise au pot'
-                        : formatCoins(seat.coins)}
+                        : formatLudo(seat.coins)}
                   </small>
                 </div>
               </article>

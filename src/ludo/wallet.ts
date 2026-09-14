@@ -1,8 +1,10 @@
 export const LUDO_PER_USD = 230
 export const STARTING_COINS = 0
-export const MIN_STAKE = 100
-export const STAKES = [100, 200, 500, 1000, 2000] as const
+export const GAME_ASSET = 'Ł'
+export const STAKE_UNITS = [1, 2, 5, 10, 20] as const
+export const STAKES = [230, 460, 1150, 2300, 4600] as const
 export type Stake = (typeof STAKES)[number]
+export const MIN_STAKE = STAKES[0]
 
 export const GAME_RAKE_BPS = 1000
 
@@ -20,6 +22,23 @@ export function winnerPayout(pot: number) {
 
 export function usdFromLudo(ludo: number) {
   return ludo / LUDO_PER_USD
+}
+
+export function unitFromLudo(ludo: number) {
+  return (Number.isFinite(ludo) ? ludo : 0) / LUDO_PER_USD
+}
+
+export function ludoFromUnit(unit: number) {
+  return Math.round(Number(unit) * LUDO_PER_USD)
+}
+
+export function formatUnit(value: number): string {
+  const rounded = Math.round(unitFromLudo(value) * 100) / 100
+  if (!Number.isFinite(rounded)) return '0'
+  if (Math.abs(rounded - Math.round(rounded)) < 1e-9) {
+    return Math.round(rounded).toLocaleString('fr-FR')
+  }
+  return rounded.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 const KEY = 'ludo-wallet-v1'
@@ -54,7 +73,7 @@ export function formatCoins(value: number): string {
 }
 
 export function formatLudo(value: number): string {
-  return `${formatCoins(value)} LUDO`
+  return `${formatUnit(value)} ${GAME_ASSET}`
 }
 
 export function daFor(coins: number, rateDa: number, unit = LUDO_PER_USD) {
