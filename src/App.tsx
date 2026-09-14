@@ -28,7 +28,7 @@ import { unlockSfx } from './audio/sfx'
 import { createGame } from './ludo/engine'
 import { connectRoomSync } from './realtime/roomSync'
 import type { ColorId, GameState, PlayerCount } from './ludo/types'
-import { STAKES, type Stake } from './ludo/wallet'
+import { DEFAULT_STAKE, type Stake } from './ludo/wallet'
 import './App.css'
 
 export default function App() {
@@ -37,7 +37,7 @@ export default function App() {
   const [name, setName] = useState('')
   const [count, setCount] = useState<PlayerCount>(2)
   const [color, setColor] = useState<ColorId>('red')
-  const [stake, setStake] = useState<Stake>(STAKES[0])
+  const [stake, setStake] = useState<Stake>(DEFAULT_STAKE)
   const [coins, setCoins] = useState(0)
   const [game, setGame] = useState<GameState | null>(null)
   const [error, setError] = useState('')

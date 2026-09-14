@@ -30,7 +30,7 @@ import {
   type DeskAgent,
 } from '../api/desk'
 import { shortAddress } from '../identity/mnemonic'
-import { formatDa, formatLudo, GAME_ASSET, ludoFromUnit, rakePercent, usdFromLudo } from '../ludo/wallet'
+import { formatDa, formatLudo, formatStakeUnit, GAME_ASSET, ludoFromUnit, rakePercent, usdFromLudo } from '../ludo/wallet'
 import '../App.css'
 import './admin.css'
 import { InstallPwa } from '../components/InstallPwa'
@@ -530,9 +530,9 @@ function Credit({ token, agents }: { token: string; agents: DeskAgent[] }) {
   const [error, setError] = useState('')
   const [ok, setOk] = useState('')
   const [busy, setBusy] = useState(false)
-  const units = Math.floor(Number(amount))
+  const units = Number(String(amount).replace(',', '.'))
   const coins = ludoFromUnit(units)
-  const amountOk = Number.isInteger(units) && units >= 1 && units <= 10_000
+  const amountOk = Number.isFinite(units) && units >= 0.25 && units <= 10_000 && coins >= 1
   const centres = useMemo(
     () => [...agents].sort((a, b) => a.name.localeCompare(b.name, 'fr')),
     [agents],
@@ -658,21 +658,21 @@ function Credit({ token, agents }: { token: string; agents: DeskAgent[] }) {
               <label className="field">
                 <span>Ł à envoyer</span>
                 <input
-                  inputMode="numeric"
-                  placeholder="10"
+                  inputMode="decimal"
+                  placeholder="1"
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ''))}
+                  onChange={(e) => setAmount(e.target.value.replace(/[^\d.,]/g, ''))}
                 />
               </label>
               <div className="pills pills--stakes desk__pills">
-                {[1, 2, 5, 10, 20, 50, 100].map((n) => (
+                {[0.25, 0.5, 1, 2, 5, 10, 20, 50, 100].map((n) => (
                   <button
                     key={n}
                     type="button"
-                    className={Number(amount) === n ? 'pill is-on' : 'pill'}
+                    className={units === n ? 'pill is-on' : 'pill'}
                     onClick={() => setAmount(String(n))}
                   >
-                    {n} {GAME_ASSET}
+                    {formatStakeUnit(n)} {GAME_ASSET}
                   </button>
                 ))}
               </div>

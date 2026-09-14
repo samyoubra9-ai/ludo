@@ -1,10 +1,12 @@
 export const LUDO_PER_USD = 230
 export const STARTING_COINS = 0
 export const GAME_ASSET = 'Ł'
-export const STAKE_UNITS = [1, 2, 5, 10, 20] as const
-export const STAKES = [230, 460, 1150, 2300, 4600] as const
+export const STAKE_UNITS = [0.25, 0.5, 1, 2, 5, 10, 20] as const
+export const STAKES = [58, 115, 230, 460, 1150, 2300, 4600] as const
 export type Stake = (typeof STAKES)[number]
 export const MIN_STAKE = STAKES[0]
+export const DEFAULT_STAKE: Stake = 230
+export const MIN_UNIT = 0.25
 
 export const GAME_RAKE_BPS = 1000
 
@@ -39,6 +41,13 @@ export function formatUnit(value: number): string {
     return Math.round(rounded).toLocaleString('fr-FR')
   }
   return rounded.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+export function formatStakeUnit(unit: number): string {
+  const n = Number(unit)
+  if (!Number.isFinite(n)) return '0'
+  if (Number.isInteger(n)) return n.toLocaleString('fr-FR')
+  return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 const KEY = 'ludo-wallet-v1'

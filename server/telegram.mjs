@@ -1,6 +1,6 @@
 import { db } from './db.mjs'
 import { setTelegramBotUsername } from './config.mjs'
-import { GAME_ASSET, PACKS, formatLudo, ludoFromUnit } from './economy.mjs'
+import { GAME_ASSET, MIN_UNIT, PACKS, formatLudo, ludoFromUnit } from './economy.mjs'
 import { connectRedis } from './redis.mjs'
 import {
   confirmInvoice,
@@ -120,7 +120,7 @@ function packKeyboard() {
   return {
     inline_keyboard: PACKS.map((pack) => [
       {
-        text: `${pack.name} · +${pack.usd} ${GAME_ASSET} · ${pack.usd} USDT`,
+        text: `${pack.name} · +${formatLudo(ludoFromUnit(pack.usd))} · ${pack.usd} USDT`,
         callback_data: `pack:${pack.id}`,
       },
     ]),
@@ -618,7 +618,7 @@ async function handleMessage(msg) {
       return
     }
     const asNumber = Number(String(text).replace(/\s/g, '').replace(',', '.'))
-    if (Number.isFinite(asNumber) && asNumber >= 1) {
+    if (Number.isFinite(asNumber) && asNumber >= MIN_UNIT) {
       await previewWithdraw(fromId, chatId, ludoFromUnit(asNumber))
       return
     }

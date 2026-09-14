@@ -17,7 +17,7 @@ import {
   type KioskOp,
 } from '../api/desk'
 import { shortAddress } from '../identity/mnemonic'
-import { daFor, formatDa, formatLudo, GAME_ASSET, ludoFromUnit, LUDO_PER_USD, STAKE_UNITS } from '../ludo/wallet'
+import { daFor, formatDa, formatLudo, formatStakeUnit, GAME_ASSET, ludoFromUnit, LUDO_PER_USD, STAKE_UNITS } from '../ludo/wallet'
 import '../App.css'
 import '../admin/admin.css'
 import './kiosk.css'
@@ -720,7 +720,7 @@ function Counter({
                   className={units === unit ? 'pill is-on' : 'pill'}
                   onClick={() => setAmount(String(unit))}
                 >
-                  {unit} {GAME_ASSET}
+                  {formatStakeUnit(unit)} {GAME_ASSET}
                 </button>
               ))}
               {client.canBuyback && client.coins > 0 ? (

@@ -122,7 +122,8 @@ export function formatRaw(raw, decimals) {
 }
 
 export function packRaw(tokens, decimals) {
-  return BigInt(tokens) * 10n ** BigInt(decimals)
+  const scale = 10 ** Number(decimals)
+  return BigInt(Math.round(Number(tokens) * scale))
 }
 
 async function rpcOnce(url, method, params) {
