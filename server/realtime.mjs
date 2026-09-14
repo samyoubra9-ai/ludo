@@ -2,6 +2,7 @@ import { WebSocketServer } from 'ws'
 import { bus } from './bus.mjs'
 import { sql } from './db.mjs'
 import { getRoom, snapshot, touchSeat } from './rooms.mjs'
+import { touchPresence } from './presence.mjs'
 
 const MAX_SOCKETS = 800
 const HEARTBEAT_MS = 25000
@@ -63,10 +64,12 @@ export function attachRealtime(server) {
 
     const client = { ws, address, code: '', alive: true }
     clients.add(client)
+    void touchPresence(address)
     send(ws, { type: 'hello', ok: true })
 
     ws.on('pong', () => {
       client.alive = true
+      void touchPresence(client.address)
     })
 
     ws.on('message', (raw) => {
@@ -77,6 +80,7 @@ export function attachRealtime(server) {
         return
       }
       if (msg?.type === 'ping') {
+        void touchPresence(client.address)
         send(ws, { type: 'pong' })
         return
       }

@@ -164,8 +164,10 @@ export async function initDb() {
     );
 
     ALTER TABLE wallets ADD COLUMN IF NOT EXISTS telegram_id BIGINT;
+    ALTER TABLE wallets ADD COLUMN IF NOT EXISTS last_seen BIGINT;
     CREATE UNIQUE INDEX IF NOT EXISTS wallets_telegram_id
       ON wallets (telegram_id) WHERE telegram_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS wallets_last_seen ON wallets (last_seen);
     CREATE INDEX IF NOT EXISTS sessions_address ON sessions(address);
     CREATE INDEX IF NOT EXISTS matches_address_settled ON matches(address, settled);
     CREATE INDEX IF NOT EXISTS shop_orders_address ON shop_orders(address);

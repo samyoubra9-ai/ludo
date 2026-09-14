@@ -23,6 +23,7 @@ import { attachRealtime } from './realtime.mjs'
 import { attachBus } from './bus.mjs'
 import { connectRedis, redisEnabled } from './redis.mjs'
 import { handleDesk } from './desk.mjs'
+import { touchPresence } from './presence.mjs'
 import { startTelegramBot } from './telegram.mjs'
 
 const PEPPER = process.env.LUDO_PEPPER || 'ludo-dev-pepper'
@@ -97,7 +98,9 @@ async function authWallet(req) {
   if (!token) return null
   const session = await sql('SELECT address, expires_at FROM sessions WHERE token = ?').get(token)
   if (!session || session.expires_at < Date.now()) return null
-  return getWallet(session.address)
+  const wallet = await getWallet(session.address)
+  if (wallet) await touchPresence(wallet.address)
+  return wallet
 }
 
 async function withDesk(wallet) {
@@ -244,6 +247,7 @@ const server = createServer(async (req, res) => {
       await db
         .prepare('INSERT INTO sessions (token, address, expires_at) VALUES (?, ?, ?)')
         .run(session, address, Date.now() + SESSION_MS)
+      await touchPresence(address)
       const wallet = await withDesk(await getWallet(address))
       json(res, 200, {
         token: session,

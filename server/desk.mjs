@@ -3,7 +3,8 @@ import { db, tx } from './db.mjs'
 import { GAME_ASSET, GAME_RAKE_BPS, LUDO_PER_USD, STAKES } from './economy.mjs'
 import { checkPassword, hashPassword, newSessionToken } from './pass.mjs'
 import { PUBLIC_URL, publicUrls } from './config.mjs'
-import { isPlaying } from './rooms.mjs'
+import { isPlaying, liveRoomStats } from './rooms.mjs'
+import { countOnline } from './presence.mjs'
 
 const SESSION_MS = 1000 * 60 * 60 * 24 * 30
 const ADDR_RE = /^0x[a-f0-9]{40}$/
@@ -195,15 +196,24 @@ async function adminOverview() {
       today.buybackDa = row.da
     }
   }
-  const [house, houseToday, kioskAll, kioskToday] = await Promise.all([
+  const [house, houseToday, kioskAll, kioskToday, online, tables] = await Promise.all([
     houseRake(),
     houseRake(since),
     cashStats(null),
     cashStats(null, since),
+    countOnline(),
+    liveRoomStats(),
   ])
   return {
     kiosks: { total: kiosks?.total || 0, active: kiosks?.active || 0, frozen: kiosks?.frozen || 0, stock: stock?.coins || 0 },
-    players: { wallets: players?.wallets || 0, tagged: players?.tagged || 0 },
+    players: {
+      wallets: players?.wallets || 0,
+      tagged: players?.tagged || 0,
+      online,
+      playing: tables.playing,
+      lobby: tables.lobby,
+      rooms: tables.rooms,
+    },
     today,
     house: {
       rakeLudo: house.rake,

@@ -205,6 +205,20 @@ export async function isPlaying(address) {
   return false
 }
 
+export async function liveRoomStats() {
+  let rooms = 0
+  let playing = 0
+  let lobby = 0
+  for (const room of await listRooms()) {
+    if (room.status === 'ended') continue
+    rooms += 1
+    const humans = room.seats.filter((seat) => seat.kind === 'human' && !seat.forfeited).length
+    if (room.status === 'playing') playing += humans
+    else lobby += humans
+  }
+  return { rooms, playing, lobby }
+}
+
 export async function activeRoomFor(address) {
   for (const room of await listRooms()) {
     if (room.status === 'ended') continue

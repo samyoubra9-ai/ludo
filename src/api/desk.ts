@@ -38,7 +38,14 @@ export type AdminOp = {
 
 export type AdminOverview = {
   kiosks: { total: number; active: number; frozen: number; stock: number }
-  players: { wallets: number; tagged: number }
+  players: {
+    wallets: number
+    tagged: number
+    online?: number
+    playing?: number
+    lobby?: number
+    rooms?: number
+  }
   today: { sell: number; buyback: number; sellCoins: number; buybackCoins: number; sellDa?: number; buybackDa?: number }
   house: { rakeLudo: number; rakeLudoToday: number; wins: number; winsToday: number; unit: number }
   kiosk: CashPnl

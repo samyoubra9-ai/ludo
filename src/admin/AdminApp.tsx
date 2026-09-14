@@ -138,6 +138,16 @@ export function AdminApp() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
+  useEffect(() => {
+    if (gate !== 'desk' || !token) return
+    const tick = window.setInterval(() => {
+      void adminOverview(token)
+        .then((dash) => setOverview(dash))
+        .catch(() => undefined)
+    }, 8000)
+    return () => window.clearInterval(tick)
+  }, [gate, token])
+
   return (
     <div className="app">
       <InstallPwa />
@@ -746,6 +756,11 @@ function Overview({
   return (
     <>
       <section className="dash-kpis">
+        <Kpi
+          label="Joueurs en ligne"
+          value={String(overview?.players?.online ?? 0)}
+          hint={`${overview?.players?.playing ?? 0} en partie · ${overview?.players?.lobby ?? 0} en salon · ${overview?.players?.wallets ?? 0} comptes`}
+        />
         <Kpi label="Kiosques actifs" value={String(kiosks?.active ?? 0)} hint={`${kiosks?.frozen ?? 0} gelé(s) · ${kiosks?.total ?? 0} au total`} />
         <Kpi label="Stock réseau" value={formatLudo(kiosks?.stock ?? 0)} hint="Ł chez les kiosques" />
         <Kpi
