@@ -371,6 +371,29 @@ export async function handleDesk(req, res, { json, readBody, pathOf, fail, beare
       return true
     }
 
+    if (req.method === 'POST' && path === '/api/admin/password') {
+      const body = await readBody(req)
+      const current = String(body.current || '')
+      const next = String(body.next || '')
+      if (!validPass(next)) {
+        json(res, 400, { error: 'Nouveau mot de passe : 8 caractères min.' })
+        return true
+      }
+      if (current === next) {
+        json(res, 400, { error: 'Le nouveau mot de passe doit être différent.' })
+        return true
+      }
+      const row = await db.prepare('SELECT id, password_hash FROM admins WHERE id = ?').get(admin.id)
+      if (!row || !checkPassword(current, row.password_hash)) {
+        json(res, 400, { error: 'Mot de passe actuel incorrect.' })
+        return true
+      }
+      await db.prepare('UPDATE admins SET password_hash = ? WHERE id = ?').run(hashPassword(next), admin.id)
+      await db.prepare('DELETE FROM admin_sessions WHERE admin_id = ? AND token <> ?').run(admin.id, bearer(req))
+      json(res, 200, { ok: true })
+      return true
+    }
+
     if (req.method === 'GET' && path === '/api/admin/overview') {
       json(res, 200, await adminOverview())
       return true

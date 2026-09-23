@@ -9,37 +9,43 @@ import {
   leaveRoom,
   loginWallet,
   logoutWallet,
-  moveRoom,
-  rollRoom,
+  pickRoom,
+  betRoom,
+  peekRoom,
+  coverRoom,
+  nextRoom,
+  rebuyRoom,
+  offerRoom,
+  buyRoom,
+  keepChefRoom,
   startRoom,
   ApiError,
   type PlayingInfo,
   type RoomSnapshot,
 } from './api/client'
-import { GameScreen } from './components/GameScreen'
 import { HomeScreen, type PlayMode } from './components/HomeScreen'
 import { InstallPwa } from './components/InstallPwa'
+import { PaquetScreen } from './components/PaquetScreen'
 import { RoomLobby } from './components/RoomLobby'
 import { WalletGate } from './components/WalletGate'
 import { clearSession, loadSession, saveSession, type LocalSession } from './identity/store'
 import { resumeIfVisible, unlockAudio } from './audio/bus'
 import { setMusic, THEME } from './audio/music'
 import { unlockSfx } from './audio/sfx'
-import { createGame } from './ludo/engine'
+import { createPaquet } from './paquet/engine'
+import type { PaquetState } from './paquet/engine'
+import { PAQUET_COLORS } from './paquet/palette'
 import { connectRoomSync } from './realtime/roomSync'
-import type { ColorId, GameState, PlayerCount } from './ludo/types'
-import { DEFAULT_STAKE, type Stake } from './ludo/wallet'
+import { TABLE_STAKE } from './ludo/wallet'
 import './App.css'
 
 export default function App() {
   const [session, setSession] = useState<LocalSession | null>(loadSession)
   const [ready, setReady] = useState(!loadSession())
   const [name, setName] = useState('')
-  const [count, setCount] = useState<PlayerCount>(2)
-  const [color, setColor] = useState<ColorId>('red')
-  const [stake, setStake] = useState<Stake>(DEFAULT_STAKE)
+  const stake = TABLE_STAKE
   const [coins, setCoins] = useState(0)
-  const [game, setGame] = useState<GameState | null>(null)
+  const [paquet, setPaquet] = useState<PaquetState | null>(null)
   const [error, setError] = useState('')
   const [mode, setMode] = useState<PlayMode>('solo')
   const [joinCode, setJoinCode] = useState('')
@@ -98,7 +104,7 @@ export default function App() {
   }, [session])
 
   useEffect(() => {
-    if (!session || game || room) return
+    if (!session || paquet || room) return
     const token = session.token
     const refresh = () => {
       void fetchMe(token)
@@ -119,7 +125,7 @@ export default function App() {
       window.removeEventListener('focus', refresh)
       window.clearInterval(tick)
     }
-  }, [session, game, room])
+  }, [session, paquet, room])
 
   useEffect(() => {
     const once = () => {
@@ -135,7 +141,7 @@ export default function App() {
   }, [])
 
   const inPlay = Boolean(
-    game || (room?.game && room.you && (room.status === 'playing' || room.status === 'ended')),
+    paquet || (room?.game && room.you && (room.status === 'playing' || room.status === 'ended')),
   )
 
   useEffect(() => {
@@ -180,7 +186,7 @@ export default function App() {
     if (session) void logoutWallet(session.token)
     clearSession()
     setSession(null)
-    setGame(null)
+    setPaquet(null)
     setRoom(null)
     setResume(null)
   }
@@ -189,7 +195,7 @@ export default function App() {
     if (!session) return
     setError('')
     const matchId = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
-    setGame(createGame(name.trim() || shortName(session.address), count, color, 0, coins, matchId))
+    setPaquet(createPaquet(name.trim() || shortName(session.address), stake, coins, matchId))
   }
 
   const queueMatch = async () => {
@@ -199,8 +205,8 @@ export default function App() {
     try {
       const next = await findMatch(session.token, {
         name: name.trim() || shortName(session.address),
-        color,
-        count,
+        color: PAQUET_COLORS[0],
+        count: 8,
         stake,
       })
       setRoom(next)
@@ -219,8 +225,8 @@ export default function App() {
     try {
       const next = await createRoom(session.token, {
         name: name.trim() || shortName(session.address),
-        color,
-        count,
+        color: PAQUET_COLORS[0],
+        count: 8,
         stake,
       })
       setRoom(next)
@@ -240,7 +246,6 @@ export default function App() {
       const next = await joinRoom(session.token, {
         code: joinCode,
         name: name.trim() || shortName(session.address),
-        color,
       })
       setRoom(next)
       setResume({ code: next.code, status: next.status })
@@ -259,7 +264,6 @@ export default function App() {
       const next = await joinRoom(session.token, {
         code: resume.code,
         name: name.trim() || shortName(session.address),
-        color,
       })
       setRoom(next)
       setResume({ code: next.code, status: next.status })
@@ -276,7 +280,9 @@ export default function App() {
     setError('')
     setRoomBusy(true)
     try {
-      setRoom(await startRoom(session.token, room.code))
+      const next = await startRoom(session.token, room.code)
+      setRoom(next)
+      if (typeof next.coins === 'number') setCoins(next.coins)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Impossible de lancer.')
     } finally {
@@ -325,25 +331,6 @@ export default function App() {
     }
   }
 
-  const rejoinRoom = async () => {
-    if (!session || !room) return
-    try {
-      const next = await joinRoom(session.token, {
-        code: room.code,
-        name: name.trim() || shortName(session.address),
-        color: room.you ?? color,
-      })
-      setRoom(next)
-      setResume({ code: next.code, status: next.status, leaving: false })
-      if (typeof next.coins === 'number') setCoins(next.coins)
-      setError('')
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Impossible de revenir.'
-      setError(message)
-      throw err
-    }
-  }
-
   const parkRoom = () => {
     if (room) {
       const seat = room.seats.find((s) => s.color === room.you)
@@ -363,7 +350,7 @@ export default function App() {
       return
     }
     if (!session) {
-      setGame(null)
+      setPaquet(null)
       return
     }
     try {
@@ -372,7 +359,7 @@ export default function App() {
     } catch {
       /* keep last known */
     }
-    setGame(null)
+    setPaquet(null)
   }
 
   if (!ready) {
@@ -395,39 +382,72 @@ export default function App() {
     )
   }
 
-  const lanGame = room?.game && room.you && (room.status === 'playing' || room.status === 'ended')
+  const live = Boolean(
+    room?.game && (room.status === 'playing' || room.status === 'ended') && (room.you || room.watching),
+  )
+  const playing = Boolean(live || paquet)
+  const seatColor = (room?.you || room?.game?.players[0]?.color) as PaquetState['players'][number]['color'] | undefined
 
   return (
-    <div className={`app ${lanGame || game ? 'is-play' : ''}`}>
-      {lanGame || game ? null : <InstallPwa />}
-      {lanGame && room.game && room.you ? (
-        <GameScreen
+    <div className={`app ${playing ? 'is-play is-paquet' : ''}`}>
+      {playing ? null : <InstallPwa />}
+      {room && live && room.game && seatColor && 'packets' in room.game ? (
+        <PaquetScreen
           initial={room.game}
           live={room.game}
           remote={{
-            myColor: room.you,
-            rolling: room.rolling,
-            notice: room.notice,
-            forfeitWinAt: room.forfeitWinAt,
-            turnDueAt: room.turnDueAt,
-            abandoned: room.status === 'ended' && !room.game.winner,
-            onRoll: () => {
-              void rollRoom(session.token, room.code).then(setRoom).catch(() => undefined)
+            you: seatColor,
+            notice: room.watching
+              ? 'Tu regardes. Tu t’assois au prochain coup.'
+              : room.notice,
+            pocket: room.coins ?? coins,
+            watching: Boolean(room.watching),
+            onPick: (packetId) => {
+              if (room.watching) return
+              void pickRoom(session.token, room.code, packetId).then(setRoom).catch(() => undefined)
             },
-            onMove: (tokenId) => {
-              void moveRoom(session.token, room.code, tokenId).then(setRoom).catch(() => undefined)
+            onBet: (amount) => {
+              if (room.watching) return
+              void betRoom(session.token, room.code, amount).then(setRoom).catch(() => undefined)
             },
+            onPeek: () => {
+              if (room.watching) return
+              void peekRoom(session.token, room.code).then(setRoom).catch(() => undefined)
+            },
+            onCover: () => {
+              if (room.watching) return
+              void coverRoom(session.token, room.code).then(setRoom).catch(() => undefined)
+            },
+            onNext: () => {
+              if (room.watching) return
+              void nextRoom(session.token, room.code).then(setRoom).catch(() => undefined)
+            },
+            onOffer: (amount) => {
+              if (room.watching) return
+              void offerRoom(session.token, room.code, amount).then(setRoom).catch(() => undefined)
+            },
+            onBuy: () => {
+              if (room.watching) return
+              void buyRoom(session.token, room.code).then(setRoom).catch(() => undefined)
+            },
+            onKeep: () => {
+              if (room.watching) return
+              void keepChefRoom(session.token, room.code).then(setRoom).catch(() => undefined)
+            },
+            onRebuy: () =>
+              rebuyRoom(session.token, room.code)
+                .then((next) => {
+                  setRoom(next)
+                  if (typeof next.coins === 'number') setCoins(next.coins)
+                })
+                .catch(() => undefined),
           }}
-          youLeaving={Boolean(room.seats.find((s) => s.color === room.you)?.leaving)}
-          youForfeited={Boolean(room.seats.find((s) => s.color === room.you)?.forfeited)}
-          leavingColors={room.seats.filter((s) => s.leaving).map((s) => s.color)}
           onResign={() => void resignRoom()}
-          onRejoin={() => rejoinRoom()}
           onPark={parkRoom}
           onExit={() => void leave()}
         />
-      ) : game ? (
-        <GameScreen initial={game} onExit={() => void leave()} />
+      ) : paquet ? (
+        <PaquetScreen initial={paquet} onExit={() => void leave()} onResign={() => void leave()} />
       ) : room ? (
         <RoomLobby
           room={room}
@@ -440,9 +460,6 @@ export default function App() {
       ) : (
         <HomeScreen
           name={name}
-          count={count}
-          color={color}
-          stake={stake}
           coins={coins}
           address={session.address}
           error={error}
@@ -450,9 +467,6 @@ export default function App() {
           joinCode={joinCode}
           resume={resume}
           onName={setName}
-          onCount={setCount}
-          onColor={setColor}
-          onStake={setStake}
           onPlay={() => void play()}
           onLock={lock}
           onMode={setMode}

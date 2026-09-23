@@ -40,6 +40,14 @@ body:has(.app.is-play),
   background: #0b4a32;
 }
 
+html:has(.app.is-play.is-paquet),
+body:has(.app.is-play.is-paquet),
+#root:has(.app.is-play.is-paquet) {
+  height: 100%;
+  overflow: hidden;
+  background: #071018;
+}
+
 button,
 input,
 textarea {

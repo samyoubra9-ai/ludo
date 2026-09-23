@@ -3,9 +3,11 @@ export const STARTING_COINS = 0
 export const GAME_ASSET = 'Ł'
 export const STAKE_UNITS = [0.25, 0.5, 1, 2, 5, 10, 20] as const
 export const STAKES = [58, 115, 230, 460, 1150, 2300, 4600] as const
-export type Stake = (typeof STAKES)[number]
-export const MIN_STAKE = STAKES[0]
-export const DEFAULT_STAKE: Stake = 230
+export const TABLE_UNIT = 3.5
+export const TABLE_STAKE = 805
+export type Stake = number
+export const MIN_STAKE = TABLE_STAKE
+export const DEFAULT_STAKE = TABLE_STAKE
 export const MIN_UNIT = 0.25
 
 export const GAME_RAKE_BPS = 1000

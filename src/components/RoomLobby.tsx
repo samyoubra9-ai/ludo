@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { playSfx } from '../audio/sfx'
-import { PALETTE } from '../ludo/board'
+import { seatTone } from '../paquet/palette'
 import type { RoomSeat, RoomSnapshot } from '../api/client'
 import { copyText } from '../identity/copy'
 import { formatLudo } from '../ludo/wallet'
@@ -37,7 +37,7 @@ export function RoomLobby({
   onLeave: () => void
 }) {
   const match = room.kind === 'match'
-  const canStart = !match && isHost && (room.humans ?? 0) >= 2 && room.status === 'lobby'
+  const canStart = room.status === 'lobby' && (room.humans ?? 0) >= 1
   const urls = room.urls?.length ? room.urls : []
   const [copied, setCopied] = useState('')
   const [toast, setToast] = useState<{ text: string; tone: 'in' | 'out' } | null>(null)
@@ -123,7 +123,7 @@ export function RoomLobby({
         <AudioToggle />
       </header>
       <header className="logo">
-        <p className="logo__kicker">{match ? 'Matchmaking' : 'Salon privé'}</p>
+        <p className="logo__kicker">{match ? 'La table' : 'Salon privé'}</p>
         {match ? (
           <h1 className="match-wait__title">
             <span className="c-red">{waiting}</span>
@@ -147,10 +147,10 @@ export function RoomLobby({
           {match
             ? counting
               ? 'Table complète. Ça commence.'
-              : `Dès que ${room.count} joueurs réels sont à table, la partie lance. Tes Ł restent en jeu.`
+              : `Entrée ${formatLudo(room.stake)}. Une personne lance. Les places vides : ordis.`
             : copied === 'code'
               ? 'Code copié.'
-              : 'Partage le code. Tes amis tapent ces 4 lettres.'}
+              : 'Partage le code. Une personne lance. Les autres jouent au prochain coup.'}
         </p>
       </header>
 
@@ -159,7 +159,7 @@ export function RoomLobby({
           <span style={{ width: `${(waiting / room.count) * 100}%` }} />
         </div>
         <p className="room-fill__label">
-          {waiting}/{room.count} autour de la table · mise {formatLudo(room.stake)}
+          {waiting}/{room.count} autour de la table · entrée {formatLudo(room.stake)}
         </p>
         {match ? (
           <p className="match-wait">{counting ? 'Tout le monde est là' : 'Recherche de joueurs…'}</p>
@@ -182,7 +182,7 @@ export function RoomLobby({
         ) : null}
         {error && <p className="bank-note">{error}</p>}
 
-        <ul className="room-seats">
+          <ul className={`room-seats ${room.count === 8 ? 'room-seats--oct' : ''}`}>
           {room.seats.map((seat) => {
             const inSeat = seat.kind === 'human' || seat.kind === 'bot'
             const status =
@@ -204,11 +204,11 @@ export function RoomLobby({
                 key={seat.color}
                 className={`room-seat ${inSeat ? 'is-in' : 'is-wait'} ${pop === seat.color ? 'is-pop' : ''}`}
               >
-                <span className="room-seat__pawn" style={{ background: PALETTE[seat.color].hex }}>
+                <span className="room-seat__pawn" style={{ background: seatTone(seat.color).hex }}>
                   {inSeat ? seat.name.slice(0, 1).toUpperCase() : '·'}
                 </span>
                 <div>
-                  <strong>{inSeat ? seat.name : PALETTE[seat.color].name}</strong>
+                  <strong>{inSeat ? seat.name : seatTone(seat.color).name}</strong>
                   <small>{status}</small>
                 </div>
                 {seat.kind === 'human' && seat.online !== false && !seat.botPlay ? (
@@ -219,27 +219,22 @@ export function RoomLobby({
           })}
         </ul>
 
-        {match ? (
-          <p className="field__hint wait-note">
-            Matchmaking entre joueurs réels uniquement. Aucun bot, tes pièces restent en jeu.
-          </p>
-        ) : isHost ? (
-          <button type="button" className={`btn-play ${canStart ? 'is-ready' : ''}`} disabled={!canStart || busy} onClick={onStart}>
-            {canStart ? 'Lancer la partie' : 'En attente d’un autre joueur…'}
-          </button>
-        ) : (
-          <p className="field__hint wait-note">L’hôte lance dès que vous êtes au moins deux.</p>
-        )}
+        <button type="button" className={`btn-play ${canStart ? 'is-ready' : ''}`} disabled={!canStart || busy} onClick={onStart}>
+          {busy ? 'Lancement…' : canStart ? 'Lancer la partie' : 'Un instant…'}
+        </button>
+        <p className="field__hint wait-note">
+          N’importe qui à table peut lancer. Un arrivant attend la fin du coup, puis s’assoit.
+        </p>
 
         <button type="button" className="btn-ghost room-leave" onClick={() => setAskLeave(true)}>
-          {match ? 'Annuler la recherche' : 'Quitter la salle'}
+          {match ? 'Quitter la table' : 'Quitter le salon'}
         </button>
       </div>
       {askLeave ? (
         <div className="leave-scrim" role="dialog" aria-modal="true" aria-labelledby="lobby-leave-title">
           <div className="leave-sheet">
             <p className="leave-sheet__kicker">Un instant</p>
-            <h2 id="lobby-leave-title">{match ? 'Annuler la recherche ?' : 'Quitter le salon ?'}</h2>
+            <h2 id="lobby-leave-title">{match ? 'Quitter la table ?' : 'Quitter le salon ?'}</h2>
             <p>
               {match
                 ? counting
@@ -259,7 +254,7 @@ export function RoomLobby({
                   onLeave()
                 }}
               >
-                {match ? 'Annuler' : 'Quitter'}
+                Quitter
               </button>
             </div>
           </div>

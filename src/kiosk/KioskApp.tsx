@@ -154,12 +154,9 @@ export function KioskApp() {
 function Brand({ tag }: { tag: string }) {
   return (
     <header className="logo desk__brand">
-      <p className="logo__kicker">Ludo · caisse</p>
+      <p className="logo__kicker">Petit paquet · caisse</p>
       <h1>
-        <span className="c-red">L</span>
-        <span className="c-green">U</span>
-        <span className="c-yellow">D</span>
-        <span className="c-blue">O</span>
+        <span className="c-yellow">Petit paquet</span>
       </h1>
       <p className="logo__tag">{tag}</p>
     </header>

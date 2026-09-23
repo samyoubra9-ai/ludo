@@ -1,17 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { db, tx } from './db.mjs'
-import {
-  applyMove,
-  applyRoll,
-  COLORS,
-  colorsForCount,
-  createGameFromPlayers,
-  currentPlayer,
-  pickBotMove,
-  rollDie,
-  skipOutPlayers,
-} from './ludo.mjs'
-import { formatLudo, isAllowedStake, rakeOf, winnerPayout } from './economy.mjs'
+import { isAllowedStake, formatLudo, TABLE_STAKE } from './economy.mjs'
 import { bus } from './bus.mjs'
 import {
   acquireLock,
@@ -22,6 +11,25 @@ import {
   roomExists,
   saveRoom,
 } from './redis.mjs'
+import {
+  PAQUET_COLORS,
+  botStack,
+  coverCurrent,
+  createPaquetFromPlayers,
+  endTable,
+  isOver,
+  isPaquetGame,
+  minBet,
+  peekChef,
+  pickPacket,
+  placeBet,
+  startNextHand,
+  stepAuto,
+  viewFor,
+  offerChef,
+  buyChef,
+  cancelOffer,
+} from './paquet.mjs'
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const LOBBY_TTL_MS = 45 * 60 * 1000
@@ -29,9 +37,6 @@ const ENDED_TTL_MS = 2 * 60 * 1000
 const ONLINE_MS = 8 * 1000
 const DISCONNECT_GRACE_MS = 25 * 1000
 const FORFEIT_GRACE_MS = 20 * 1000
-const TURN_MS = 15 * 1000
-const BOT_DELAY_MS = 700
-const ROLL_DELAY_MS = 720
 const MATCH_COUNTDOWN_MS = 3000
 
 async function persist(room, { silent = false } = {}) {
@@ -72,43 +77,29 @@ export function refillIfNeeded(wallet) {
   return { ...wallet, refilled: false }
 }
 
-async function deductStake(address, stake, matchId, players) {
+async function shiftCoins(address, delta) {
+  if (!delta) return getWallet(address)
   return tx(async () => {
     const locked = await db.prepare('SELECT address, coins FROM wallets WHERE address = ? FOR UPDATE').get(address)
     if (!locked) throw new Error('Wallet introuvable.')
-    const already = await db.prepare('SELECT id FROM matches WHERE id = ?').get(matchId)
-    if (already) return locked
-    const cut = await db
-      .prepare('UPDATE wallets SET coins = coins - ?, updated_at = ? WHERE address = ? AND coins >= ?')
-      .run(stake, nowIso(), address, stake)
-    if (!cut.changes) throw new Error('Solde insuffisant.')
+    if (locked.coins + delta < 0) throw Object.assign(new Error('Solde insuffisant.'), { status: 400 })
     await db
-      .prepare('INSERT INTO matches (id, address, stake, players, settled, created_at) VALUES (?, ?, ?, ?, 0, ?)')
-      .run(matchId, address, stake, players, nowIso())
-    return { address, coins: locked.coins - stake }
+      .prepare('UPDATE wallets SET coins = coins + ?, updated_at = ? WHERE address = ?')
+      .run(delta, nowIso(), address)
+    return { address, coins: locked.coins + delta }
   })
 }
 
-async function settleHuman(address, matchId, won, pot) {
-  return tx(async () => {
-    const match = await db
-      .prepare('SELECT * FROM matches WHERE id = ? AND address = ? FOR UPDATE')
-      .get(matchId, address)
-    const wallet = await db.prepare('SELECT address, coins FROM wallets WHERE address = ? FOR UPDATE').get(address)
-    if (!wallet) throw new Error('Wallet introuvable.')
-    let coins = wallet.coins
-    if (match && !match.settled) {
-      const payout = won ? winnerPayout(pot) : 0
-      if (payout) {
-        await db
-          .prepare('UPDATE wallets SET coins = coins + ?, updated_at = ? WHERE address = ?')
-          .run(payout, nowIso(), address)
-        coins += payout
-      }
-      await db.prepare('UPDATE matches SET settled = 1, won = ? WHERE id = ?').run(won ? 1 : 0, matchId)
-    }
-    return refillIfNeeded({ address, coins })
-  })
+async function cashOutSeat(room, seat) {
+  if (!seat || seat.kind !== 'human' || !seat.address || seat.cashed) return
+  const who = room.game?.players.find((p) => p.color === seat.color)
+  const amount = Math.max(0, Math.floor(Number(who?.coins) || 0))
+  if (amount) await shiftCoins(seat.address, amount)
+  seat.cashed = true
+}
+
+async function cashOutAll(room) {
+  for (const seat of room.seats) await cashOutSeat(room, seat)
 }
 
 function emptySeat(color) {
@@ -179,7 +170,7 @@ export async function snapshot(room, address, opts = {}) {
     you: you?.color ?? null,
     seats: room.seats.map(publicSeat),
     rolling: room.rolling,
-    game: room.game,
+    game: room.game ? viewFor(room.game, you?.color ?? null) : null,
     coins,
     humans: humanCount(room),
     rev: room.rev || 0,
@@ -188,6 +179,9 @@ export async function snapshot(room, address, opts = {}) {
     turnDueAt: room.turnDueAt || 0,
     startAt: room.startAt || 0,
     kind: room.kind === 'match' ? 'match' : 'private',
+    table: 'paquet',
+    waiting: (room.waiting || []).map((w) => ({ name: w.name, address: w.address })),
+    watching: Boolean((room.waiting || []).some((w) => w.address === address) && !you),
   }
 }
 
@@ -201,6 +195,7 @@ export async function isPlaying(address) {
     if (room.seats.some((seat) => seat.kind === 'human' && seat.address === address && !seat.forfeited)) {
       return true
     }
+    if ((room.waiting || []).some((w) => w.address === address)) return true
   }
   return false
 }
@@ -223,6 +218,7 @@ export async function activeRoomFor(address) {
   for (const room of await listRooms()) {
     if (room.status === 'ended') continue
     if (room.seats.some((seat) => seat.kind === 'human' && seat.address === address && !seat.forfeited)) return room
+    if ((room.waiting || []).some((w) => w.address === address)) return room
   }
   return null
 }
@@ -272,15 +268,18 @@ export async function touchSeat(roomOrCode, address) {
 }
 
 export async function createRoom({ address, name, color, count, stake, kind = 'private' }) {
-  if ((count !== 2 && count !== 4) || !isAllowedStake(stake) || !COLORS.includes(color)) {
+  count = 8
+  stake = TABLE_STAKE
+  if (!PAQUET_COLORS.includes(color)) color = PAQUET_COLORS[0]
+  if (!isAllowedStake(stake)) {
     throw Object.assign(new Error('Paramètres invalides.'), { status: 400 })
   }
   const hostWallet = await getWallet(address)
   if (!hostWallet || hostWallet.coins < stake) {
-    throw Object.assign(new Error('Solde insuffisant.'), { status: 400 })
+    throw Object.assign(new Error('Il faut 3,50 Ł pour s’asseoir.'), { status: 400 })
   }
 
-  const colors = colorsForCount(count, color)
+  const colors = [...PAQUET_COLORS]
   const seats = colors.map((id) =>
     id === color ? humanSeat(id, name || 'Hôte', address) : emptySeat(id),
   )
@@ -310,6 +309,8 @@ export async function createRoom({ address, name, color, count, stake, kind = 'p
       turnDueAt: 0,
       startAt: 0,
       kind: kind === 'match' ? 'match' : 'private',
+      table: 'paquet',
+      waiting: [],
     }
     if (await createRoomExclusive(room)) return room
   }
@@ -317,30 +318,28 @@ export async function createRoom({ address, name, color, count, stake, kind = 'p
 }
 
 export async function matchmake({ address, name, color, count, stake }) {
-  if ((count !== 2 && count !== 4) || !isAllowedStake(stake) || !COLORS.includes(color)) {
-    throw Object.assign(new Error('Paramètres invalides.'), { status: 400 })
-  }
+  count = 8
+  stake = TABLE_STAKE
+  if (!PAQUET_COLORS.includes(color)) color = PAQUET_COLORS[0]
   const seeker = await getWallet(address)
   if (!seeker || seeker.coins < stake) {
-    throw Object.assign(new Error('Solde insuffisant.'), { status: 400 })
+    throw Object.assign(new Error('Il faut 3,50 Ł pour s’asseoir.'), { status: 400 })
   }
 
   const existing = await activeRoomFor(address)
   if (existing) return existing
 
-  const lock = await acquireLock(`MM-${count}-${stake}`, 5000)
+  const lock = await acquireLock('MM-paquet-table', 5000)
   if (!lock) throw Object.assign(new Error('Recherche occupée, réessaie.'), { status: 409 })
   try {
     const again = await activeRoomFor(address)
     if (again) return again
 
     for (const candidate of await listRooms()) {
-      if (candidate.kind !== 'match' || candidate.status !== 'lobby') continue
-      if (candidate.count !== count || candidate.stake !== stake) continue
-      if (candidate.seats.some((s) => s.address === address)) {
+      if (candidate.kind !== 'match' || candidate.status === 'ended') continue
+      if (candidate.seats.some((s) => s.address === address) || (candidate.waiting || []).some((w) => w.address === address)) {
         return (await loadRoom(candidate.code)) || candidate
       }
-      if (!candidate.seats.some((s) => s.kind === 'empty')) continue
       try {
         return await joinRoom({ code: candidate.code, address, name, color })
       } catch (error) {
@@ -378,6 +377,24 @@ export async function joinRoom({ code, address, name, color }) {
       return room
     }
 
+    if (room.status === 'playing') {
+      room.waiting = room.waiting || []
+      if (room.waiting.some((w) => w.address === address)) {
+        await persist(room, { silent: true })
+        return room
+      }
+      const joiner = await getWallet(address)
+      if (!joiner || joiner.coins < room.stake) {
+        throw Object.assign(new Error('Il faut 3,50 Ł pour s’asseoir.'), { status: 400 })
+      }
+      room.waiting.push({ address, name: name || 'Joueur', joinedAt: Date.now() })
+      if (room.game) {
+        room.game = { ...room.game, message: `${name || 'Un joueur'} attend le prochain coup.` }
+      }
+      await persist(room)
+      return room
+    }
+
     if (room.status !== 'lobby') {
       throw Object.assign(new Error('La partie a déjà commencé.'), { status: 400 })
     }
@@ -412,6 +429,12 @@ export async function leaveRoom({ code, address }) {
     if (room.status === 'ended') return room
 
     if (room.status === 'playing') {
+      const waiting = room.waiting || []
+      if (waiting.some((w) => w.address === address)) {
+        room.waiting = waiting.filter((w) => w.address !== address)
+        await persist(room)
+        return room
+      }
       if (await applyQuit(room, address)) await persist(room)
       return room
     }
@@ -436,14 +459,17 @@ export async function leaveRoom({ code, address }) {
   })
 }
 
+const BOT_NAMES = ['Karim', 'Yanis', 'Sofia', 'Nour', 'Mehdi', 'Lina', 'Riad']
+
 function fillBots(room) {
   let bot = 0
   room.seats = room.seats.map((seat) => {
     if (seat.kind !== 'empty') return seat
+    const name = BOT_NAMES[bot] || `Bot ${bot + 1}`
     bot += 1
     return {
       color: seat.color,
-      name: `Bot ${bot}`,
+      name,
       address: null,
       kind: 'bot',
       lastSeen: 0,
@@ -452,6 +478,48 @@ function fillBots(room) {
       quitAt: 0,
     }
   })
+}
+
+async function admitWaiters(room) {
+  if (!room?.game || room.status !== 'playing') return
+  const queue = [...(room.waiting || [])]
+  room.waiting = []
+  for (const waiter of queue) {
+    const wallet = await getWallet(waiter.address)
+    if (!wallet || wallet.coins < room.stake) continue
+    const open = (s) => s.kind === 'bot' || s.kind === 'empty' || (s.kind === 'human' && s.forfeited)
+    const free =
+      room.seats.find((s) => open(s) && s.color !== room.game?.chef) || room.seats.find((s) => open(s))
+    if (!free) {
+      room.waiting.push(waiter)
+      continue
+    }
+    await shiftCoins(waiter.address, -room.stake)
+    const seated = humanSeat(free.color, waiter.name || 'Joueur', waiter.address)
+    seated.cashed = false
+    room.seats = room.seats.map((s) => (s.color === free.color ? seated : s))
+    room.game = {
+      ...room.game,
+      players: room.game.players.map((p) =>
+        p.color === free.color
+          ? {
+              ...p,
+              name: seated.name,
+              isHuman: true,
+              coins: room.stake,
+              packet: null,
+              bet: 0,
+              electCard: null,
+              peeked: false,
+              settled: false,
+              bank: room.stake,
+              out: false,
+            }
+          : p,
+      ),
+      message: `${seated.name} s’assoit. Il joue ce coup.`,
+    }
+  }
 }
 
 async function kickBrokeHumans(room) {
@@ -478,23 +546,21 @@ async function launchGame(room, { fillEmpty = true } = {}) {
 
   const matchId = randomBytes(16).toString('hex')
   const humanSeats = room.seats.filter((s) => s.kind === 'human' && s.address)
-  const wallets = {}
-  for (const seat of humanSeats) {
-    wallets[seat.address] = await deductStake(seat.address, room.stake, `${matchId}:${seat.address}`, humanSeats.length)
-  }
 
   const players = room.seats.map((seat) => ({
     color: seat.color,
     name: seat.name,
     isHuman: seat.kind === 'human',
-    coins:
-      seat.kind === 'human' && seat.address
-        ? wallets[seat.address].coins
-        : room.stake,
+    coins: seat.kind === 'human' ? room.stake : botStack(room.stake),
   }))
 
+  for (const seat of humanSeats) {
+    await shiftCoins(seat.address, -room.stake)
+    seat.cashed = false
+  }
+
   room.matchId = matchId
-  room.game = createGameFromPlayers(matchId, players, room.stake, room.hostColor)
+  room.game = createPaquetFromPlayers(matchId, players, room.stake, true)
   room.status = 'playing'
   room.rollDueAt = 0
   room.botDueAt = 0
@@ -548,7 +614,7 @@ function handToBot(room, seat) {
 }
 
 function syncDisconnects(room) {
-  if (room.status !== 'playing' || !room.game || room.game.winner || room.forfeitWinAt) return false
+  if (room.status !== 'playing' || !room.game || isOver(room.game) || room.forfeitWinAt) return false
   const now = Date.now()
   let changed = false
   for (const seat of room.seats) {
@@ -585,23 +651,9 @@ function setPlayerOut(room, color, out) {
 
 async function settleAbandoned(room) {
   if (room.status === 'ended') return
-  const pot = room.game?.pot || 0
-  if (room.matchId) {
-    for (const seat of room.seats) {
-      if (seat.kind !== 'human' || !seat.address) continue
-      const paid = await settleHuman(seat.address, `${room.matchId}:${seat.address}`, false, pot)
-      const player = room.game?.players.find((p) => p.color === seat.color)
-      if (player) player.coins = paid.coins
-    }
-  }
   if (room.game) {
-    room.game = {
-      ...room.game,
-      winner: null,
-      phase: 'ended',
-      movable: [],
-      message: 'Tout le monde a quitté. Pot pour la maison.',
-    }
+    room.game = endTable(room.game, 'Tout le monde a quitté. Les mises ouvertes reviennent.', null)
+    await cashOutAll(room)
   }
   room.status = 'ended'
   room.forfeitWinAt = 0
@@ -615,15 +667,11 @@ async function awardForfeitWin(room) {
     return
   }
   const winner = remaining[0]
-  room.game = {
-    ...room.game,
-    winner: winner.color,
-    phase: 'ended',
-    movable: [],
-    message: `${winner.name} gagne par forfait. Pot ${formatLudo(room.game.pot)} · maison ${formatLudo(rakeOf(room.game.pot))} · net ${formatLudo(winnerPayout(room.game.pot))}.`,
-  }
+  room.game = endTable(room.game, `${winner.name} gagne par forfait.`, winner.color)
+  await cashOutAll(room)
   room.forfeitWinAt = 0
-  await settleRoom(room)
+  room.status = 'ended'
+  pausePlay(room)
 }
 
 async function applyQuit(room, address) {
@@ -644,7 +692,7 @@ async function applyQuit(room, address) {
 }
 
 async function resolveQuitTimer(room) {
-  if (room.status !== 'playing' || room.game?.winner) {
+  if (room.status !== 'playing' || isOver(room.game)) {
     room.forfeitWinAt = 0
     return
   }
@@ -654,6 +702,7 @@ async function resolveQuitTimer(room) {
     seat.quitAt = 0
     seat.botPlay = false
     setPlayerOut(room, seat.color, true)
+    await cashOutSeat(room, seat)
   }
   room.forfeitWinAt = 0
   if (!leavers.length) {
@@ -674,163 +723,60 @@ async function resolveQuitTimer(room) {
     const names = leavers.map((s) => s.name).join(', ')
     const note =
       leavers.length > 1
-        ? `${names} ne sont pas revenus. Leurs mises restent au pot. La partie continue.`
-        : `${names} n’est pas revenu. Sa mise reste au pot. La partie continue.`
-    room.game = skipOutPlayers({ ...room.game, message: note }, note)
+        ? `${names} ne sont pas revenus. La partie continue.`
+        : `${names} n’est pas revenu. La partie continue.`
+    room.game = { ...room.game, message: note }
   }
   armActor(room)
 }
 
-async function settleRoom(room) {
-  if (!room.game?.winner || !room.matchId) return
-  const winner = room.game.players.find((p) => p.color === room.game.winner)
-  const pot = room.game.pot
-  for (const seat of room.seats) {
-    if (seat.kind !== 'human' || !seat.address) continue
-    const matchId = `${room.matchId}:${seat.address}`
-    const paid = await settleHuman(
-      seat.address,
-      matchId,
-      Boolean(winner) && seat.color === winner.color && !seat.forfeited && !winner.out,
-      pot,
-    )
-    const player = room.game.players.find((p) => p.color === seat.color)
-    if (player) player.coins = paid.coins
-  }
-  room.status = 'ended'
+function armPaquetBots(room) {
   room.botDueAt = 0
-  room.rollDueAt = 0
-  room.busy = false
-  room.rolling = false
-  room.forfeitWinAt = 0
-  room.turnDueAt = 0
-}
-
-function armBot(room, delay = BOT_DELAY_MS) {
-  if (room.status !== 'playing' || !room.game || room.game.winner || room.busy || room.forfeitWinAt) {
-    room.botDueAt = 0
-    return
+  const game = room.game
+  if (!isPaquetGame(game) || room.status !== 'playing' || isOver(game) || room.forfeitWinAt) return
+  const wait = { elect: 2000, named: 2800, pick: 380, bet: 520, peek: 750, cover: 900, duel: 1450, runoff: 420, claim: 2600 }[game.phase]
+  if (!wait) return
+  if (game.phase === 'pick' || game.phase === 'bet' || game.phase === 'runoff') {
+    const actor = game.players.find((p) => p.color === game.actor)
+    if (actor?.isHuman) return
   }
-  const player = currentPlayer(room.game)
-  if (!player || player.isHuman) {
-    room.botDueAt = 0
-    return
+  if (game.phase === 'peek' || game.phase === 'cover') {
+    const chef = game.players.find((p) => p.color === game.chef)
+    if (chef?.isHuman) return
   }
-  room.botDueAt = Date.now() + delay
-}
-
-function armTurn(room) {
-  room.turnDueAt = 0
-  if (room.status !== 'playing' || !room.game || room.game.winner || room.busy || room.rolling || room.forfeitWinAt) {
-    return
-  }
-  const player = currentPlayer(room.game)
-  if (!player?.isHuman) return
-  if (room.game.phase !== 'to-roll' && room.game.phase !== 'to-move') return
-  room.turnDueAt = Date.now() + TURN_MS
+  room.botDueAt = Date.now() + wait
 }
 
 function armActor(room) {
-  if (room.game && !room.forfeitWinAt) room.game = skipOutPlayers(room.game)
-  armBot(room)
-  armTurn(room)
-}
-
-async function playTurnTimeout(room) {
-  if (!room.turnDueAt || Date.now() < room.turnDueAt) return false
-  if (room.forfeitWinAt || room.busy || room.rolling || !room.game || room.game.winner) {
-    room.turnDueAt = 0
-    return false
-  }
-  const player = currentPlayer(room.game)
-  if (!player?.isHuman) {
-    room.turnDueAt = 0
-    return false
-  }
-  if (room.game.phase === 'to-roll') {
-    return beginRoll(room)
-  }
-  if (room.game.phase === 'to-move') {
-    const id = pickBotMove(room.game)
-    if (id) room.game = applyMove(room.game, id)
-    if (room.game.winner) await settleRoom(room)
-    else armActor(room)
-    return true
-  }
-  room.turnDueAt = 0
-  return false
-}
-
-function beginRoll(room) {
-  if (
-    room.busy ||
-    room.rolling ||
-    room.forfeitWinAt ||
-    !room.game ||
-    room.game.phase !== 'to-roll' ||
-    room.game.winner
-  ) {
-    return false
-  }
-  const outcome = rollDie(room.game)
-  room.busy = true
-  room.rolling = true
-  room.rollDueAt = Date.now() + ROLL_DELAY_MS
-  room.rollValue = outcome.value
-  room.rollPity = outcome.pity
-  room.botDueAt = 0
-  room.turnDueAt = 0
-  return true
-}
-
-async function finishRoll(room) {
-  if (!room.game || room.status !== 'playing') {
-    room.rolling = false
-    room.busy = false
-    room.rollDueAt = 0
-    return
-  }
-  try {
-    room.game = applyRoll(room.game, room.rollValue, room.rollPity)
-  } catch (error) {
-    console.error(error)
-  }
-  room.rolling = false
-  room.busy = false
-  room.rollDueAt = 0
-  room.rollValue = 0
-  room.rollPity = false
-  if (room.game?.winner) await settleRoom(room)
-  else armActor(room)
+  armPaquetBots(room)
 }
 
 async function playBotStep(room) {
-  if (room.status !== 'playing' || !room.game || room.game.winner || room.busy || room.forfeitWinAt) {
+  if (room.status !== 'playing' || !room.game || isOver(room.game) || room.busy || room.forfeitWinAt) {
     room.botDueAt = 0
     return false
   }
-  const now = currentPlayer(room.game)
-  if (!now || now.isHuman) {
+  const before = room.game
+  const next = stepAuto(before)
+  if (next === before) {
     room.botDueAt = 0
     return false
   }
-  if (room.game.phase === 'to-roll') {
-    return beginRoll(room)
-  }
-  if (room.game.phase === 'to-move') {
-    const id = pickBotMove(room.game)
-    if (id) room.game = applyMove(room.game, id)
-    if (room.game.winner) await settleRoom(room)
-    else armActor(room)
-    return true
-  }
-  room.botDueAt = 0
-  return false
+  room.game = next
+  armPaquetBots(room)
+  return true
 }
 
-export async function roomRoll({ code, address }) {
+async function playAction(room, fn, error) {
+  const next = fn(room.game)
+  if (next === room.game) throw Object.assign(new Error(error), { status: 400 })
+  room.game = next
+  armPaquetBots(room)
+}
+
+export async function roomPick({ code, address, packetId }) {
   return withRoom(code, async (room) => {
-    if (!room?.game || room.status !== 'playing') {
+    if (!room?.game || room.status !== 'playing' || !isPaquetGame(room.game)) {
       throw Object.assign(new Error('Partie introuvable.'), { status: 404 })
     }
     applyTouch(room, address)
@@ -838,17 +784,103 @@ export async function roomRoll({ code, address }) {
     if (!seat) throw Object.assign(new Error('Tu n’es pas dans cette salle.'), { status: 403 })
     if (seat.forfeited) throw Object.assign(new Error('Tu as quitté cette partie.'), { status: 403 })
     if (isLeaving(seat)) throw Object.assign(new Error('Tu as quitté. Reviens avant la fin du délai.'), { status: 403 })
-    if (room.forfeitWinAt) {
-      throw Object.assign(new Error('En attente de forfait.'), { status: 400 })
+    if (room.forfeitWinAt) throw Object.assign(new Error('En attente de forfait.'), { status: 400 })
+    await playAction(room, (game) => pickPacket(game, seat.color, Number(packetId)), 'Ce n’est pas à toi de choisir.')
+    await persist(room)
+    return room
+  })
+}
+
+export async function roomBet({ code, address, amount }) {
+  return withRoom(code, async (room) => {
+    if (!room?.game || room.status !== 'playing' || !isPaquetGame(room.game)) {
+      throw Object.assign(new Error('Partie introuvable.'), { status: 404 })
     }
-    if (room.busy || room.rolling) {
-      throw Object.assign(new Error('Le dé tourne déjà.'), { status: 409 })
+    applyTouch(room, address)
+    const seat = room.seats.find((s) => s.address === address)
+    if (!seat) throw Object.assign(new Error('Tu n’es pas dans cette salle.'), { status: 403 })
+    if (seat.forfeited || isLeaving(seat) || room.forfeitWinAt) {
+      throw Object.assign(new Error('Tu ne peux pas miser maintenant.'), { status: 403 })
     }
-    if (room.game.turn !== seat.color || room.game.phase !== 'to-roll') {
-      throw Object.assign(new Error('Ce n’est pas à toi de lancer.'), { status: 400 })
+    await playAction(room, (game) => placeBet(game, seat.color, Number(amount)), 'Mise impossible.')
+    await persist(room)
+    return room
+  })
+}
+
+export async function roomPeek({ code, address }) {
+  return withRoom(code, async (room) => {
+    if (!room?.game || room.status !== 'playing' || !isPaquetGame(room.game)) {
+      throw Object.assign(new Error('Partie introuvable.'), { status: 404 })
     }
-    if (!beginRoll(room)) {
-      throw Object.assign(new Error('Ce n’est pas à toi de lancer.'), { status: 400 })
+    applyTouch(room, address)
+    const seat = room.seats.find((s) => s.address === address)
+    if (!seat) throw Object.assign(new Error('Tu n’es pas dans cette salle.'), { status: 403 })
+    await playAction(room, (game) => peekChef(game, seat.color), 'Seul le chef regarde sa carte.')
+    await persist(room)
+    return room
+  })
+}
+
+export async function roomCover({ code, address }) {
+  return withRoom(code, async (room) => {
+    if (!room?.game || room.status !== 'playing' || !isPaquetGame(room.game)) {
+      throw Object.assign(new Error('Partie introuvable.'), { status: 404 })
+    }
+    applyTouch(room, address)
+    const seat = room.seats.find((s) => s.address === address)
+    if (!seat) throw Object.assign(new Error('Tu n’es pas dans cette salle.'), { status: 403 })
+    await playAction(room, (game) => coverCurrent(game, seat.color), 'Le chef doit suivre.')
+    await persist(room)
+    return room
+  })
+}
+
+export async function roomNext({ code, address }) {
+  return withRoom(code, async (room) => {
+    if (!room?.game || room.status !== 'playing' || !isPaquetGame(room.game)) {
+      throw Object.assign(new Error('Partie introuvable.'), { status: 404 })
+    }
+    applyTouch(room, address)
+    const seat = room.seats.find((s) => s.address === address)
+    if (!seat) throw Object.assign(new Error('Tu n’es pas dans cette salle.'), { status: 403 })
+    if (seat.forfeited) throw Object.assign(new Error('Tu as quitté cette partie.'), { status: 403 })
+    if (isLeaving(seat)) throw Object.assign(new Error('Tu as quitté. Reviens avant la fin du délai.'), { status: 403 })
+    if (room.forfeitWinAt) throw Object.assign(new Error('En attente de forfait.'), { status: 400 })
+    await admitWaiters(room)
+    await playAction(room, (game) => startNextHand(game), 'Le coup n’est pas fini.')
+    await persist(room)
+    return room
+  })
+}
+
+export async function roomRebuy({ code, address }) {
+  return withRoom(code, async (room) => {
+    if (!room?.game || room.status !== 'playing' || !isPaquetGame(room.game)) {
+      throw Object.assign(new Error('Partie introuvable.'), { status: 404 })
+    }
+    applyTouch(room, address)
+    const seat = room.seats.find((s) => s.address === address && s.kind === 'human')
+    if (!seat) throw Object.assign(new Error('Tu n’es pas dans cette salle.'), { status: 403 })
+    if (seat.forfeited || isLeaving(seat) || room.forfeitWinAt) {
+      throw Object.assign(new Error('Tu ne peux pas ajouter maintenant.'), { status: 403 })
+    }
+    const who = room.game.players.find((p) => p.color === seat.color)
+    if (!who) throw Object.assign(new Error('Joueur introuvable.'), { status: 404 })
+    const buyIn = Math.max(1, room.stake)
+    if (who.bet > 0) throw Object.assign(new Error('Tu as déjà une mise en jeu.'), { status: 400 })
+    if (who.coins >= minBet(room.game)) {
+      throw Object.assign(new Error('Tu as encore des jetons sur la table.'), { status: 400 })
+    }
+    const wallet = await getWallet(address)
+    if (!wallet || wallet.coins < buyIn) {
+      throw Object.assign(new Error('Pas assez en poche pour ajouter.'), { status: 400 })
+    }
+    await shiftCoins(address, -buyIn)
+    room.game = {
+      ...room.game,
+      players: room.game.players.map((p) => (p.color === who.color ? { ...p, coins: p.coins + buyIn } : p)),
+      message: `${who.name} ajoute ${formatLudo(buyIn)}.`,
     }
     await persist(room)
     return room
@@ -863,48 +895,53 @@ export async function startRoom({ code, address }) {
     const seated = room.seats.some((s) => s.address === address && s.kind === 'human' && !s.forfeited)
     if (!seated) throw Object.assign(new Error('Tu n’es pas dans cette salle.'), { status: 403 })
 
-    if (room.kind === 'match') {
-      if (humanCount(room) < room.count) {
-        throw Object.assign(new Error('Le matchmaking attend encore des joueurs.'), { status: 400 })
-      }
-      await maybeAutoStart(room)
-      await persist(room)
-      return room
+    await kickBrokeHumans(room)
+    if (!room.seats.some((s) => s.address === address && s.kind === 'human')) {
+      throw Object.assign(new Error('Il faut 3,50 Ł pour lancer.'), { status: 400 })
     }
-
-    if (room.host !== address) throw Object.assign(new Error('Seul l’hôte lance la partie.'), { status: 403 })
-    if (humanCount(room) < 2) {
-      throw Object.assign(new Error('Attends qu’un autre joueur rejoigne.'), { status: 400 })
-    }
-
     await launchGame(room, { fillEmpty: true })
     await persist(room)
     return room
   })
 }
 
-export async function roomMove({ code, address, tokenId }) {
+export async function roomOffer({ code, address, amount }) {
   return withRoom(code, async (room) => {
-    if (!room?.game || room.status !== 'playing') {
+    if (!room?.game || room.status !== 'playing' || !isPaquetGame(room.game)) {
       throw Object.assign(new Error('Partie introuvable.'), { status: 404 })
     }
     applyTouch(room, address)
-    if (room.busy) throw Object.assign(new Error('Attends le dé.'), { status: 400 })
     const seat = room.seats.find((s) => s.address === address)
     if (!seat) throw Object.assign(new Error('Tu n’es pas dans cette salle.'), { status: 403 })
-    if (seat.forfeited) throw Object.assign(new Error('Tu as quitté cette partie.'), { status: 403 })
-    if (isLeaving(seat)) throw Object.assign(new Error('Tu as quitté. Reviens avant la fin du délai.'), { status: 403 })
-    if (room.forfeitWinAt) {
-      throw Object.assign(new Error('En attente de forfait.'), { status: 400 })
+    await playAction(room, (game) => offerChef(game, seat.color, Number(amount)), 'Tu ne peux pas vendre maintenant.')
+    await persist(room)
+    return room
+  })
+}
+
+export async function roomBuy({ code, address }) {
+  return withRoom(code, async (room) => {
+    if (!room?.game || room.status !== 'playing' || !isPaquetGame(room.game)) {
+      throw Object.assign(new Error('Partie introuvable.'), { status: 404 })
     }
-    if (room.game.turn !== seat.color || room.game.phase !== 'to-move') {
-      throw Object.assign(new Error('Ce n’est pas à toi de jouer.'), { status: 400 })
+    applyTouch(room, address)
+    const seat = room.seats.find((s) => s.address === address)
+    if (!seat) throw Object.assign(new Error('Tu n’es pas dans cette salle.'), { status: 403 })
+    await playAction(room, (game) => buyChef(game, seat.color), 'Tu ne peux pas acheter maintenant.')
+    await persist(room)
+    return room
+  })
+}
+
+export async function roomCancelOffer({ code, address }) {
+  return withRoom(code, async (room) => {
+    if (!room?.game || room.status !== 'playing' || !isPaquetGame(room.game)) {
+      throw Object.assign(new Error('Partie introuvable.'), { status: 404 })
     }
-    const next = applyMove(room.game, String(tokenId || ''))
-    if (next === room.game) throw Object.assign(new Error('Coup invalide.'), { status: 400 })
-    room.game = next
-    if (room.game.winner) await settleRoom(room)
-    else armActor(room)
+    applyTouch(room, address)
+    const seat = room.seats.find((s) => s.address === address)
+    if (!seat) throw Object.assign(new Error('Tu n’es pas dans cette salle.'), { status: 403 })
+    await playAction(room, (game) => cancelOffer(game, seat.color), 'Pas d’offre.')
     await persist(room)
     return room
   })
@@ -916,13 +953,11 @@ function needsTick(room, now) {
   if (!room) return false
   if (room.startAt && room.status === 'lobby' && now >= room.startAt) return true
   if (room.forfeitWinAt && now >= room.forfeitWinAt) return true
-  if (room.turnDueAt && now >= room.turnDueAt) return true
-  if (room.rollDueAt && now >= room.rollDueAt) return true
   if (room.botDueAt && now >= room.botDueAt) return true
   const age = now - (room.touched || 0)
   if (room.status === 'lobby' && age > LOBBY_TTL_MS) return true
   if (room.status === 'ended' && age > ENDED_TTL_MS) return true
-  if (room.status === 'playing' && room.game && !room.game.winner) {
+  if (room.status === 'playing' && room.game && !isOver(room.game)) {
     return now - (lastDiscoCheck.get(room.code) || 0) >= 2000
   }
   return false
@@ -956,17 +991,8 @@ async function tickRoom(code) {
       return
     }
 
-    if (room.forfeitWinAt && now >= room.forfeitWinAt && room.status === 'playing' && !room.game?.winner) {
+    if (room.forfeitWinAt && now >= room.forfeitWinAt && room.status === 'playing' && !isOver(room.game)) {
       await resolveQuitTimer(room)
-      dirty = true
-    }
-
-    if (!room.forfeitWinAt && room.rollDueAt && now >= room.rollDueAt) {
-      await finishRoll(room)
-      dirty = true
-    }
-
-    if (!room.forfeitWinAt && (await playTurnTimeout(room))) {
       dirty = true
     }
 

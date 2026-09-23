@@ -5,6 +5,7 @@ import {
   adminLogout,
   adminMe,
   adminOverview,
+  adminPassword,
   adminSetup,
   adminStatus,
   clearToken,
@@ -36,9 +37,9 @@ import './admin.css'
 import { InstallPwa } from '../components/InstallPwa'
 
 type Gate = 'loading' | 'setup' | 'login' | 'desk'
-type Page = 'overview' | 'kiosks' | 'apps' | 'new' | 'activity' | 'profit' | 'credit'
+type Page = 'overview' | 'kiosks' | 'apps' | 'new' | 'activity' | 'profit' | 'credit' | 'account'
 
-const PAGES: Page[] = ['overview', 'kiosks', 'apps', 'new', 'activity', 'profit', 'credit']
+const PAGES: Page[] = ['overview', 'kiosks', 'apps', 'new', 'activity', 'profit', 'credit', 'account']
 
 const NAV: { id: Page; label: string; hint: string }[] = [
   { id: 'overview', label: 'Vue d’ensemble', hint: 'Stock et flux' },
@@ -48,6 +49,7 @@ const NAV: { id: Page; label: string; hint: string }[] = [
   { id: 'profit', label: 'Bénéfices', hint: 'Maison et caisses' },
   { id: 'new', label: 'Nouveau centre', hint: 'Ouvrir un guichet' },
   { id: 'activity', label: 'Mouvements', hint: 'Ventes et rachats' },
+  { id: 'account', label: 'Mot de passe', hint: 'Compte admin' },
 ]
 
 function readPage(): Page {
@@ -249,7 +251,7 @@ export function AdminApp() {
             }
           }}
           onDelete={async (id, name) => {
-            if (!window.confirm(`Supprimer le centre « ${name} » ? Il ne pourra plus ouvrir /caisse. Son compte Ludo n’est pas effacé.`)) {
+            if (!window.confirm(`Supprimer le centre « ${name} » ? Il ne pourra plus ouvrir /caisse. Son compte n’est pas effacé.`)) {
               return
             }
             setError('')
@@ -311,12 +313,9 @@ export function AdminApp() {
 function Brand({ tag }: { tag: string }) {
   return (
     <header className="logo desk__brand">
-      <p className="logo__kicker">Ludo · administration</p>
+      <p className="logo__kicker">Petit paquet · administration</p>
       <h1>
-        <span className="c-red">L</span>
-        <span className="c-green">U</span>
-        <span className="c-yellow">D</span>
-        <span className="c-blue">O</span>
+        <span className="c-yellow">Petit paquet</span>
       </h1>
       <p className="logo__tag">{tag}</p>
     </header>
@@ -525,6 +524,7 @@ function Dashboard({
           {page === 'profit' ? <Profit agents={agents} overview={overview} onPage={onPage} /> : null}
           {page === 'new' ? <NewKiosk busy={busy} onCreate={onCreate} /> : null}
           {page === 'activity' ? <Activity ops={ops} /> : null}
+          {page === 'account' ? <Account token={token} username={username} /> : null}
         </div>
       </div>
     </div>
@@ -1032,6 +1032,82 @@ function KioskTable({
   )
 }
 
+function Account({ token, username }: { token: string; username: string }) {
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [ok, setOk] = useState('')
+  const ready = next.length >= 8 && next === confirm && current.length > 0
+
+  return (
+    <div className="dash-form-wrap">
+      <ol className="dash-steps">
+        <li>Tu es connecté en {username}.</li>
+        <li>Ancien mot de passe, puis le nouveau (8 caractères min.).</li>
+        <li>Si tu as tout oublié, on le reset depuis le serveur.</li>
+      </ol>
+      <form
+        className="dash-panel dash-form"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (!ready || busy) return
+          setBusy(true)
+          setError('')
+          setOk('')
+          void adminPassword(token, current, next)
+            .then(() => {
+              setCurrent('')
+              setNext('')
+              setConfirm('')
+              setOk('Mot de passe changé.')
+            })
+            .catch((err) => setError(err instanceof Error ? err.message : 'Changement refusé.'))
+            .finally(() => setBusy(false))
+        }}
+      >
+        <h2>Nouveau mot de passe</h2>
+        <label className="field">
+          <span>Mot de passe actuel</span>
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={current}
+            onChange={(e) => setCurrent(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          <span>Nouveau</span>
+          <input
+            type="password"
+            autoComplete="new-password"
+            minLength={8}
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+          />
+        </label>
+        <label className="field">
+          <span>Confirmer</span>
+          <input
+            type="password"
+            autoComplete="new-password"
+            minLength={8}
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+          />
+        </label>
+        {next && confirm && next !== confirm ? <p className="dash-toast is-bad">Les deux nouveaux mots de passe ne matchent pas.</p> : null}
+        {ok ? <p className="dash-toast is-ok">{ok}</p> : null}
+        {error ? <p className="dash-toast is-bad">{error}</p> : null}
+        <button className="btn-play" type="submit" disabled={busy || !ready}>
+          {busy ? 'Enregistrement…' : 'Changer'}
+        </button>
+      </form>
+    </div>
+  )
+}
+
 function NewKiosk({
   busy,
   onCreate,
@@ -1306,6 +1382,14 @@ function Icon({ name }: { name: Page | 'menu' }) {
       <svg {...common}>
         <circle cx="12" cy="12" r="8.2" />
         <path d="M12 8.5v7M8.5 12h7" />
+      </svg>
+    )
+  }
+  if (name === 'account') {
+    return (
+      <svg {...common}>
+        <rect x="5" y="11" width="14" height="9" rx="2" />
+        <path d="M8 11V8a4 4 0 0 1 8 0v3" />
       </svg>
     )
   }

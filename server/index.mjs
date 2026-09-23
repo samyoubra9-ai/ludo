@@ -11,8 +11,15 @@ import {
   joinRoom,
   matchmake,
   leaveRoom,
-  roomMove,
-  roomRoll,
+  roomPick,
+  roomBet,
+  roomPeek,
+  roomCover,
+  roomNext,
+  roomRebuy,
+  roomOffer,
+  roomBuy,
+  roomCancelOffer,
   snapshot,
   startRoom,
   startRoomJanitor,
@@ -366,9 +373,7 @@ const server = createServer(async (req, res) => {
           json(res, 200, { unchanged: true, rev: room.rev || 0 })
           return
         }
-        await sendRoom(res, room, wallet.address, {
-          snapshotOpts: { skipWallet: room?.status === 'playing' },
-        })
+        await sendRoom(res, room, wallet.address)
         return
       }
 
@@ -381,23 +386,96 @@ const server = createServer(async (req, res) => {
         return
       }
 
-      if (req.method === 'POST' && roomPath.action === 'roll') {
+      if (req.method === 'POST' && roomPath.action === 'pick') {
+        const body = await readBody(req)
         try {
-          await sendRoom(res, await roomRoll({ code: roomPath.code, address: wallet.address }), wallet.address)
+          await sendRoom(res, await roomPick({
+            code: roomPath.code,
+            address: wallet.address,
+            packetId: body.packetId,
+          }), wallet.address)
         } catch (error) {
           fail(res, error)
         }
         return
       }
 
-      if (req.method === 'POST' && roomPath.action === 'move') {
+      if (req.method === 'POST' && roomPath.action === 'bet') {
         const body = await readBody(req)
         try {
-          await sendRoom(res, await roomMove({
+          await sendRoom(res, await roomBet({
             code: roomPath.code,
             address: wallet.address,
-            tokenId: body.tokenId,
+            amount: body.amount,
           }), wallet.address)
+        } catch (error) {
+          fail(res, error)
+        }
+        return
+      }
+
+      if (req.method === 'POST' && roomPath.action === 'peek') {
+        try {
+          await sendRoom(res, await roomPeek({ code: roomPath.code, address: wallet.address }), wallet.address)
+        } catch (error) {
+          fail(res, error)
+        }
+        return
+      }
+
+      if (req.method === 'POST' && roomPath.action === 'cover') {
+        try {
+          await sendRoom(res, await roomCover({ code: roomPath.code, address: wallet.address }), wallet.address)
+        } catch (error) {
+          fail(res, error)
+        }
+        return
+      }
+
+      if (req.method === 'POST' && roomPath.action === 'next') {
+        try {
+          await sendRoom(res, await roomNext({ code: roomPath.code, address: wallet.address }), wallet.address)
+        } catch (error) {
+          fail(res, error)
+        }
+        return
+      }
+
+      if (req.method === 'POST' && roomPath.action === 'offer') {
+        const body = await readBody(req)
+        try {
+          await sendRoom(res, await roomOffer({
+            code: roomPath.code,
+            address: wallet.address,
+            amount: body.amount,
+          }), wallet.address)
+        } catch (error) {
+          fail(res, error)
+        }
+        return
+      }
+
+      if (req.method === 'POST' && roomPath.action === 'buy') {
+        try {
+          await sendRoom(res, await roomBuy({ code: roomPath.code, address: wallet.address }), wallet.address)
+        } catch (error) {
+          fail(res, error)
+        }
+        return
+      }
+
+      if (req.method === 'POST' && roomPath.action === 'keep') {
+        try {
+          await sendRoom(res, await roomCancelOffer({ code: roomPath.code, address: wallet.address }), wallet.address)
+        } catch (error) {
+          fail(res, error)
+        }
+        return
+      }
+
+      if (req.method === 'POST' && roomPath.action === 'rebuy') {
+        try {
+          await sendRoom(res, await roomRebuy({ code: roomPath.code, address: wallet.address }), wallet.address)
         } catch (error) {
           fail(res, error)
         }
@@ -440,7 +518,7 @@ if (process.env.TELEGRAM_IN_SERVER === '1') {
 server.listen(PORT, '0.0.0.0', () => {
   startRoomJanitor()
   const urls = publicUrls()
-  console.log(`Ludo prêt · http://0.0.0.0:${PORT} · PostgreSQL · WebSocket /ws · salles ${redisEnabled() ? 'Redis' : 'mémoire'}`)
+  console.log(`Petit paquet · http://0.0.0.0:${PORT} · PostgreSQL · WebSocket /ws · salles ${redisEnabled() ? 'Redis' : 'mémoire'}`)
   if (urls.length) console.log(`Public : ${urls.join('  ')}`)
   const bot = telegramBotUsername()
   if (bot) console.log(`Recharge : https://t.me/${bot}`)

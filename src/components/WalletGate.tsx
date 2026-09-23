@@ -91,12 +91,9 @@ export function WalletGate({
     <section className="lobby gate">
       <div className="lobby__glow" aria-hidden="true" />
       <header className="logo">
-        <p className="logo__kicker">Ludo · sans email</p>
-        <h1 aria-label="Ludo">
-          <span className="c-red">L</span>
-          <span className="c-green">U</span>
-          <span className="c-yellow">D</span>
-          <span className="c-blue">O</span>
+        <p className="logo__kicker">Petit paquet · sans email</p>
+        <h1 aria-label="Petit paquet">
+          <span className="c-yellow">Petit paquet</span>
         </h1>
       </header>
 
@@ -186,7 +183,7 @@ export function WalletGate({
           ))}
           {error && <p className="bank-note">{error}</p>}
           <button type="button" className="btn-play" onClick={() => void confirm()} disabled={busy || checks.some((c) => !c)}>
-            {busy ? 'Ouverture…' : 'Entrer dans Ludo'}
+            {busy ? 'Ouverture…' : 'Entrer à la table'}
           </button>
         </div>
       )}

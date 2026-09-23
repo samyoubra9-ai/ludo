@@ -2,10 +2,12 @@ import { getBus, isSfxOn, unlockAudio } from './bus'
 
 export type Cue = 'roll' | 'land' | 'six' | 'hop' | 'capture' | 'home' | 'win' | 'lose' | 'join' | 'leave'
 
-let rumble: { stop: () => void } | null = null
-
 export function unlockSfx() {
   unlockAudio()
+}
+
+function jitter(n: number, amt = 0.1) {
+  return n * (1 + (Math.random() * 2 - 1) * amt)
 }
 
 function env(
@@ -19,8 +21,8 @@ function env(
 ) {
   const amp = ctx.createGain()
   amp.gain.setValueAtTime(0.0001, when)
-  amp.gain.exponentialRampToValueAtTime(gain, when + attack)
-  amp.gain.setValueAtTime(gain, when + attack + hold)
+  amp.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), when + attack)
+  amp.gain.setValueAtTime(Math.max(0.0002, gain), when + attack + hold)
   amp.gain.exponentialRampToValueAtTime(0.0001, when + attack + hold + release)
   amp.connect(dest)
   return amp
@@ -59,156 +61,157 @@ function noise(ctx: AudioContext, seconds: number, pink = true) {
   return src
 }
 
-/** Ludo King-style dry plastic tick. */
-function diceTick(ctx: AudioContext, dest: AudioNode, when: number) {
-  const src = noise(ctx, 0.018, false)
+function burst(
+  ctx: AudioContext,
+  dest: AudioNode,
+  when: number,
+  seconds: number,
+  pink: boolean,
+  type: BiquadFilterType,
+  freq: number,
+  q: number,
+  gain: number,
+  attack = 0.001,
+  hold = 0.008,
+  release = 0.04,
+  sweep?: number,
+) {
+  const src = noise(ctx, seconds, pink)
   const filter = ctx.createBiquadFilter()
-  const amp = env(ctx, dest, when, 0.001, 0.003, 0.02, 0.32)
-  filter.type = 'bandpass'
-  filter.frequency.setValueAtTime(2400 + Math.random() * 1400, when)
-  filter.Q.value = 4.5
+  const amp = env(ctx, dest, when, attack, hold, release, gain)
+  filter.type = type
+  filter.Q.value = q
+  filter.frequency.setValueAtTime(freq, when)
+  if (sweep) filter.frequency.exponentialRampToValueAtTime(sweep, when + attack + hold + release)
   src.connect(filter)
   filter.connect(amp)
   src.start(when)
-  const tip = env(ctx, dest, when, 0.001, 0.004, 0.018, 0.1)
-  osc(ctx, tip, 'sine', 1900 + Math.random() * 700, when, 0.03)
 }
 
-function stopRumble() {
-  rumble?.stop()
-  rumble = null
+function tableThump(ctx: AudioContext, dest: AudioNode, when: number, gain: number) {
+  const body = env(ctx, dest, when, 0.001, 0.012, 0.07, gain)
+  osc(ctx, body, 'sine', jitter(108, 0.12), when, 0.09, 58)
+  const wood = env(ctx, dest, when, 0.001, 0.008, 0.05, gain * 0.45)
+  osc(ctx, wood, 'sine', jitter(52, 0.08), when, 0.07, 32)
 }
 
-function startRoll(ctx: AudioContext, dest: AudioNode) {
-  stopRumble()
-  const mix = ctx.createGain()
-  mix.gain.value = 1
-  mix.connect(dest)
+function cardSnap(ctx: AudioContext, dest: AudioNode, when: number, gain = 0.3) {
+  burst(ctx, dest, when, 0.03, false, 'highpass', jitter(2400, 0.15), 0.7, gain * 0.55, 0.0006, 0.004, 0.02)
+  burst(ctx, dest, when, 0.055, true, 'bandpass', jitter(1350, 0.12), 0.95, gain * 0.32, 0.001, 0.01, 0.038)
+  tableThump(ctx, dest, when + 0.003, gain * 0.42)
+}
 
-  let t = ctx.currentTime + 0.01
-  let gap = 0.026
-  while (t < ctx.currentTime + 0.68) {
-    diceTick(ctx, mix, t)
-    if (Math.random() > 0.4) diceTick(ctx, mix, t + 0.006)
-    gap = Math.min(0.055, gap + 0.0022)
+function cardDeal(ctx: AudioContext, dest: AudioNode, when: number) {
+  burst(ctx, dest, when, 0.09, true, 'bandpass', jitter(900, 0.1), 0.8, 0.1, 0.008, 0.03, 0.05, jitter(2200, 0.12))
+  cardSnap(ctx, dest, when + 0.05, 0.26)
+}
+
+function cardSlide(ctx: AudioContext, dest: AudioNode, when: number) {
+  burst(ctx, dest, when, 0.16, true, 'lowpass', jitter(700, 0.12), 0.6, 0.1, 0.012, 0.06, 0.08, jitter(1600, 0.1))
+  burst(ctx, dest, when + 0.02, 0.1, false, 'bandpass', jitter(2100, 0.1), 1.1, 0.045, 0.004, 0.03, 0.06)
+}
+
+function cardFlip(ctx: AudioContext, dest: AudioNode, when: number) {
+  burst(ctx, dest, when, 0.11, true, 'highpass', jitter(480, 0.1), 0.55, 0.11, 0.006, 0.04, 0.07, jitter(2400, 0.12))
+  cardSnap(ctx, dest, when + 0.09, 0.34)
+}
+
+function riffle(ctx: AudioContext, dest: AudioNode, when: number) {
+  let t = when
+  let gap = 0.028
+  for (let i = 0; i < 11; i += 1) {
+    cardSnap(ctx, dest, t, 0.09 + Math.random() * 0.05)
     t += gap
-  }
-
-  rumble = {
-    stop: () => {
-      mix.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.03)
-    },
+    gap = Math.min(0.048, gap + 0.0018)
   }
 }
 
-/** Cartoon spring on every cell — Ludo King hop. */
-function kingHop(ctx: AudioContext, dest: AudioNode) {
-  const when = ctx.currentTime
-  const spring = env(ctx, dest, when, 0.004, 0.025, 0.1, 0.26)
-  osc(ctx, spring, 'triangle', 620, when, 0.13, 240)
-  const pop = env(ctx, dest, when, 0.002, 0.008, 0.04, 0.12)
-  osc(ctx, pop, 'sine', 980, when, 0.05, 520)
-}
-
-/** Air blow when a pawn is sent home. */
-function souffle(ctx: AudioContext, dest: AudioNode) {
-  const when = ctx.currentTime
-  const src = noise(ctx, 0.48, true)
-  const filter = ctx.createBiquadFilter()
-  const amp = env(ctx, dest, when, 0.04, 0.12, 0.32, 0.38)
-  filter.type = 'bandpass'
-  filter.Q.value = 0.85
-  filter.frequency.setValueAtTime(2200, when)
-  filter.frequency.exponentialRampToValueAtTime(180, when + 0.42)
-  src.connect(filter)
-  filter.connect(amp)
-  src.start(when)
-
-  const air = noise(ctx, 0.4, false)
-  const high = ctx.createBiquadFilter()
-  const airAmp = env(ctx, dest, when, 0.03, 0.08, 0.28, 0.16)
-  high.type = 'highpass'
-  high.frequency.value = 1800
-  air.connect(high)
-  high.connect(airAmp)
-  air.start(when)
-
-  const breath = env(ctx, dest, when, 0.03, 0.1, 0.28, 0.1)
-  osc(ctx, breath, 'sine', 210, when, 0.4, 70)
-}
-
-function chime(ctx: AudioContext, dest: AudioNode, notes: number[], gap = 0.08, gain = 0.16) {
-  notes.forEach((freq, i) => {
-    const at = ctx.currentTime + i * gap
-    const amp = env(ctx, dest, at, 0.012, 0.04, 0.32, gain)
-    osc(ctx, amp, 'sine', freq, at, 0.38)
+function chips(ctx: AudioContext, dest: AudioNode, when: number) {
+  ;[0, 0.032, 0.07].forEach((off, i) => {
+    const t = when + off
+    const tone = jitter(2400 - i * 220, 0.08)
+    burst(ctx, dest, t, 0.02, false, 'bandpass', tone, 3.2, 0.16, 0.0008, 0.004, 0.018)
+    const ping = env(ctx, dest, t, 0.001, 0.006, 0.03, 0.07)
+    osc(ctx, ping, 'sine', tone * 0.72, t, 0.04, tone * 0.4)
   })
 }
 
-export function playSfx(cue: Cue) {
-  if (!isSfxOn()) {
-    if (cue === 'land' || cue === 'win' || cue === 'lose') stopRumble()
-    return
-  }
+function eat(ctx: AudioContext, dest: AudioNode, when: number) {
+  cardSnap(ctx, dest, when, 0.38)
+  tableThump(ctx, dest, when + 0.008, 0.28)
+  burst(ctx, dest, when + 0.01, 0.12, true, 'lowpass', 420, 0.7, 0.12, 0.004, 0.03, 0.09, 140)
+}
+
+function tone(ctx: AudioContext, dest: AudioNode, midi: number, when: number, dur: number, gain: number) {
+  const freq = 440 * 2 ** ((midi - 69) / 12)
+  const filter = ctx.createBiquadFilter()
+  const amp = env(ctx, dest, when, 0.01, dur * 0.35, dur * 0.65, gain)
+  filter.type = 'lowpass'
+  filter.frequency.setValueAtTime(980, when)
+  filter.Q.value = 0.8
+  filter.connect(amp)
+  osc(ctx, filter, 'sine', freq, when, dur)
+  osc(ctx, filter, 'sine', freq * 2.01, when, dur * 0.45)
+}
+
+function chef(ctx: AudioContext, dest: AudioNode, when: number) {
+  tone(ctx, dest, 67, when, 0.42, 0.09)
+  tone(ctx, dest, 74, when + 0.09, 0.48, 0.07)
+}
+
+function recap(ctx: AudioContext, dest: AudioNode, when: number) {
+  tone(ctx, dest, 60, when, 0.55, 0.08)
+  tone(ctx, dest, 64, when + 0.12, 0.6, 0.07)
+  tone(ctx, dest, 67, when + 0.26, 0.72, 0.06)
+}
+
+function leave(ctx: AudioContext, dest: AudioNode, when: number) {
+  const down = env(ctx, dest, when, 0.01, 0.05, 0.18, 0.1)
+  osc(ctx, down, 'sine', 196, when, 0.24, 98)
+}
+
+export function playSfx(cue: Cue, delayMs = 0) {
+  if (!isSfxOn()) return
   const bus = getBus()
   if (!bus) return
   unlockAudio()
   const { ctx, sfx } = bus
+  const when = ctx.currentTime + Math.max(0, delayMs) / 1000
 
   if (cue === 'roll') {
-    startRoll(ctx, sfx)
+    riffle(ctx, sfx, when)
     return
   }
-
-  if (cue === 'land') {
-    stopRumble()
-    diceTick(ctx, sfx, ctx.currentTime)
-    const tok = env(ctx, sfx, ctx.currentTime, 0.002, 0.015, 0.08, 0.28)
-    osc(ctx, tok, 'sine', 340, ctx.currentTime, 0.1, 150)
-    const table = env(ctx, sfx, ctx.currentTime, 0.002, 0.02, 0.1, 0.16)
-    osc(ctx, table, 'sine', 110, ctx.currentTime, 0.14, 70)
-    return
-  }
-
-  if (cue === 'hop') {
-    kingHop(ctx, sfx)
-    return
-  }
-
-  if (cue === 'six') {
-    chime(ctx, sfx, [659, 784, 988], 0.07, 0.15)
-    return
-  }
-
-  if (cue === 'capture') {
-    souffle(ctx, sfx)
-    return
-  }
-
-  if (cue === 'home') {
-    chime(ctx, sfx, [523, 659], 0.09, 0.14)
-    return
-  }
-
-  if (cue === 'win') {
-    chime(ctx, sfx, [523, 659, 784, 988], 0.11, 0.17)
-    return
-  }
-
   if (cue === 'join') {
-    chime(ctx, sfx, [659, 880], 0.06, 0.12)
+    cardDeal(ctx, sfx, when)
     return
   }
-
-  if (cue === 'leave') {
-    const when = ctx.currentTime
-    const down = env(ctx, sfx, when, 0.01, 0.04, 0.16, 0.12)
-    osc(ctx, down, 'sine', 330, when, 0.2, 180)
+  if (cue === 'hop') {
+    cardSlide(ctx, sfx, when)
     return
   }
-
-  stopRumble()
-  const when = ctx.currentTime
-  const down = env(ctx, sfx, when, 0.02, 0.08, 0.3, 0.2)
-  osc(ctx, down, 'sine', 196, when, 0.4, 98)
+  if (cue === 'land') {
+    cardFlip(ctx, sfx, when)
+    return
+  }
+  if (cue === 'home') {
+    chips(ctx, sfx, when)
+    return
+  }
+  if (cue === 'capture') {
+    eat(ctx, sfx, when)
+    return
+  }
+  if (cue === 'six') {
+    chef(ctx, sfx, when)
+    return
+  }
+  if (cue === 'win') {
+    recap(ctx, sfx, when)
+    return
+  }
+  if (cue === 'leave' || cue === 'lose') {
+    leave(ctx, sfx, when)
+    return
+  }
 }

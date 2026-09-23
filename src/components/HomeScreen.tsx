@@ -1,20 +1,16 @@
 import { useEffect, useState } from 'react'
 import { copyText, canShareText, shareText } from '../identity/copy'
 import { shortAddress } from '../identity/mnemonic'
-import { PALETTE } from '../ludo/board'
-import type { ColorId, PlayerCount } from '../ludo/types'
-import { formatLudo, rakePercent, STAKES, winnerPayout, type Stake } from '../ludo/wallet'
+import { formatLudo, rakePercent, TABLE_STAKE } from '../ludo/wallet'
 import { AudioToggle } from './AudioToggle'
 import { Coins } from './Coins'
-import { Token } from './Token'
-
-const COLORS: ColorId[] = ['red', 'green', 'yellow', 'blue']
+import { PAQUET_PALETTE } from '../paquet/palette'
 
 export type PlayMode = 'solo' | 'match' | 'lan'
 
 const MODES: { id: PlayMode; title: string; hint: string }[] = [
   { id: 'solo', title: 'Solo', hint: 'Vs ordi' },
-  { id: 'match', title: 'Match', hint: 'En ligne' },
+  { id: 'match', title: 'Table', hint: 'En ligne · 8' },
   { id: 'lan', title: 'Salon', hint: 'Entre amis' },
 ]
 
@@ -38,47 +34,43 @@ function ModeIcon({ id }: { id: PlayMode }) {
   }
   return (
     <svg viewBox="0 0 32 32" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M7 14.5 16 6l9 8.5V26H20v-7h-8v7H7z"
-      />
+      <path fill="currentColor" d="M7 14.5 16 6l9 8.5V26H20v-7h-8v7H7z" />
     </svg>
   )
 }
 
-function MiniBoard({ color }: { color: ColorId }) {
+function MiniTable() {
+  const seats = Object.values(PAQUET_PALETTE).map((tone, i) => {
+    const a = -Math.PI / 2 + (i / 8) * Math.PI * 2
+    return {
+      hex: tone.hex,
+      left: `${50 + Math.cos(a) * 40}%`,
+      top: `${52 + Math.sin(a) * 34}%`,
+    }
+  })
+  const packs = Array.from({ length: 8 }, (_, i) => {
+    const a = -Math.PI / 2 + (i / 8) * Math.PI * 2
+    return {
+      left: `${50 + Math.cos(a) * 15}%`,
+      top: `${52 + Math.sin(a) * 12}%`,
+    }
+  })
   return (
-    <div className="mini-board" aria-hidden="true">
-      <span className="mini-board__yard mini-board__yard--green" />
-      <span className="mini-board__path mini-board__path--n" />
-      <span className="mini-board__yard mini-board__yard--yellow" />
-      <span className="mini-board__path mini-board__path--w" />
-      <span className="mini-board__home" />
-      <span className="mini-board__path mini-board__path--e" />
-      <span className="mini-board__yard mini-board__yard--red" />
-      <span className="mini-board__path mini-board__path--s" />
-      <span className="mini-board__yard mini-board__yard--blue" />
-      <span className={`mini-board__token mini-board__token--green ${color === 'green' ? 'is-on' : ''}`}>
-        <Token color="green" mark="hero" hot={color === 'green'} />
-      </span>
-      <span className={`mini-board__token mini-board__token--yellow ${color === 'yellow' ? 'is-on' : ''}`}>
-        <Token color="yellow" mark="hero" hot={color === 'yellow'} />
-      </span>
-      <span className={`mini-board__token mini-board__token--red ${color === 'red' ? 'is-on' : ''}`}>
-        <Token color="red" mark="hero" hot={color === 'red'} />
-      </span>
-      <span className={`mini-board__token mini-board__token--blue ${color === 'blue' ? 'is-on' : ''}`}>
-        <Token color="blue" mark="hero" hot={color === 'blue'} />
-      </span>
+    <div className="mini-table" aria-hidden="true">
+      <span className="mini-table__rail" />
+      <span className="mini-table__felt" />
+      {packs.map((pack, i) => (
+        <b key={i} className="mini-table__pack" style={{ left: pack.left, top: pack.top }} />
+      ))}
+      {seats.map((seat, i) => (
+        <i key={i} className="mini-table__seat" style={{ left: seat.left, top: seat.top, background: seat.hex }} />
+      ))}
     </div>
   )
 }
 
 export function HomeScreen({
   name,
-  count,
-  color,
-  stake,
   coins,
   address,
   error,
@@ -86,9 +78,6 @@ export function HomeScreen({
   joinCode,
   resume,
   onName,
-  onCount,
-  onColor,
-  onStake,
   onPlay,
   onLock,
   onMode,
@@ -99,9 +88,6 @@ export function HomeScreen({
   onResumeRoom,
 }: {
   name: string
-  count: PlayerCount
-  color: ColorId
-  stake: Stake
   coins: number
   address: string
   error?: string
@@ -109,9 +95,6 @@ export function HomeScreen({
   joinCode: string
   resume?: { code: string; status: 'lobby' | 'playing' | 'ended'; leaving?: boolean } | null
   onName: (value: string) => void
-  onCount: (value: PlayerCount) => void
-  onColor: (value: ColorId) => void
-  onStake: (value: Stake) => void
   onPlay: () => void
   onLock: () => void
   onMode: (value: PlayMode) => void
@@ -150,15 +133,15 @@ export function HomeScreen({
   }
 
   const shareId = async () => {
-    const sent = await shareText('Mon ID Ludo', address)
+    const sent = await shareText('Mon ID Petit paquet', address)
     if (!sent) await copyId()
   }
 
-  const pot = stake * count
   const needsStake = mode !== 'solo'
-  const canPlay = !needsStake || coins >= stake
+  const canPlay = !needsStake || coins >= TABLE_STAKE
+  const extra = Math.max(0, coins - TABLE_STAKE)
   const playLabel =
-    mode === 'solo' ? 'Jouer maintenant' : mode === 'match' ? 'Trouver une table' : 'Créer une salle'
+    mode === 'solo' ? 'Jouer maintenant' : mode === 'match' ? 'S’asseoir à la table' : 'Créer un salon'
 
   return (
     <section className="lobby lobby--menu lobby--play">
@@ -184,15 +167,12 @@ export function HomeScreen({
       </header>
 
       <header className="logo logo--play">
-        <MiniBoard color={color} />
-        <p className="logo__kicker">Le jeu</p>
-        <h1 aria-label="Ludo">
-          <span className="c-red">L</span>
-          <span className="c-green">U</span>
-          <span className="c-yellow">D</span>
-          <span className="c-blue">O</span>
+        <MiniTable />
+        <p className="logo__kicker">La table</p>
+        <h1 aria-label="Petit paquet">
+          <span className="c-yellow">Petit paquet</span>
         </h1>
-        <p className="hero__line">Rentre tes 4 pions. Premier arrivé gagne.</p>
+        <p className="hero__line">Une table. 8 places. Le chef jusqu’à l’as.</p>
       </header>
 
       <form
@@ -222,7 +202,7 @@ export function HomeScreen({
         ) : null}
         {error ? <p className="bank-note">{error}</p> : null}
         {needsStake && !canPlay ? (
-          <p className="bank-note">Solde insuffisant pour cette mise.</p>
+          <p className="bank-note">Il faut 3,50 Ł pour rejoindre la table.</p>
         ) : null}
 
         <div className="mode-grid">
@@ -255,65 +235,14 @@ export function HomeScreen({
           />
         </label>
 
-        <div className="play-split">
-          <p className="play-field__label">Joueurs</p>
-          <div className="pills pills--counts">
-            <button type="button" className={count === 2 ? 'pill is-on' : 'pill'} onClick={() => onCount(2)}>
-              <span className="pill__dots" aria-hidden="true">
-                <i />
-                <i />
-              </span>
-              2
-            </button>
-            <button type="button" className={count === 4 ? 'pill is-on' : 'pill'} onClick={() => onCount(4)}>
-              <span className="pill__dots" aria-hidden="true">
-                <i />
-                <i />
-                <i />
-                <i />
-              </span>
-              4
-            </button>
-          </div>
-        </div>
-
-        <p className="play-field__label">Ton pion</p>
-        <div className="swatches">
-          {COLORS.map((id) => (
-            <button
-              key={id}
-              type="button"
-              className={id === color ? 'swatch-card is-on' : 'swatch-card'}
-              onClick={() => onColor(id)}
-            >
-              <span className="swatch-card__pawn">
-                <Token color={id} mark="pick" selected={id === color} />
-              </span>
-              <small>{PALETTE[id].name}</small>
-            </button>
-          ))}
-        </div>
+        <p className="play-pot play-pot--free">Table de 8 · à l’aveugle · le chef aligne</p>
 
         {needsStake ? (
-          <>
-            <p className="play-field__label">Mise</p>
-            <div className="pills pills--stakes">
-              {STAKES.map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={value === stake ? 'pill is-on' : 'pill'}
-                  disabled={coins < value}
-                  onClick={() => onStake(value)}
-                >
-                  {formatLudo(value)}
-                </button>
-              ))}
-            </div>
-            <p className="play-pot">
-              Pot {formatLudo(pot)} · gagnant {formatLudo(winnerPayout(pot))}
-            </p>
-          </>
+          <p className="play-pot">
+            Entrée {formatLudo(TABLE_STAKE)}. Tu poses ça sur la table
+            {extra > 0 ? ` · ${formatLudo(extra)} restent en poche` : ''}. Une personne lance.
+            Les autres s’assoient au prochain coup.
+          </p>
         ) : (
           <p className="play-pot play-pot--free">Entraînement · le solde ne bouge pas</p>
         )}

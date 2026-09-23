@@ -161,6 +161,13 @@ export function adminLogout(token: string) {
   return apiRequest<{ ok: boolean }>('/api/admin/logout', { method: 'POST' }, token).catch(() => undefined)
 }
 
+export function adminPassword(token: string, current: string, next: string) {
+  return apiRequest<{ ok: boolean }>('/api/admin/password', {
+    method: 'POST',
+    body: JSON.stringify({ current, next }),
+  }, token)
+}
+
 export function listAgents(token: string) {
   return apiRequest<{ agents: DeskAgent[] }>('/api/admin/agents', {}, token)
 }

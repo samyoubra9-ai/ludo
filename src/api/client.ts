@@ -1,4 +1,4 @@
-import type { ColorId, GameState } from '../ludo/types'
+import type { PaquetState } from '../paquet/engine'
 
 export type PlayingInfo = {
   code: string
@@ -58,7 +58,7 @@ export function logoutWallet(token: string) {
 }
 
 export type RoomSeat = {
-  color: ColorId
+  color: string
   name: string
   address: string | null
   kind: 'human' | 'bot' | 'empty'
@@ -71,14 +71,14 @@ export type RoomSeat = {
 export type RoomSnapshot = {
   code: string
   host: string
-  count: 2 | 4
+  count: 8
   stake: number
   status: 'lobby' | 'playing' | 'ended'
-  you: ColorId | null
+  you: string | null
   seats: RoomSeat[]
   urls?: string[]
   rolling: boolean
-  game: GameState | null
+  game: PaquetState | null
   coins?: number
   humans?: number
   left?: boolean
@@ -88,6 +88,8 @@ export type RoomSnapshot = {
   turnDueAt?: number
   startAt?: number
   kind?: 'private' | 'match'
+  waiting?: { name: string; address: string }[]
+  watching?: boolean
 }
 
 export type RoomPoll = RoomSnapshot | { unchanged: true; rev: number }
@@ -102,19 +104,19 @@ export function fetchLan(token?: string) {
 
 export function createRoom(
   token: string,
-  payload: { name: string; color: ColorId; count: 2 | 4; stake: number },
+  payload: { name: string; color: string; count: 8; stake: number },
 ) {
   return request<RoomSnapshot>('/api/rooms', { method: 'POST', body: JSON.stringify(payload) }, token)
 }
 
 export function findMatch(
   token: string,
-  payload: { name: string; color: ColorId; count: 2 | 4; stake: number },
+  payload: { name: string; color: string; count: 8; stake: number },
 ) {
   return request<RoomSnapshot>('/api/rooms/match', { method: 'POST', body: JSON.stringify(payload) }, token)
 }
 
-export function joinRoom(token: string, payload: { code: string; name: string; color?: ColorId }) {
+export function joinRoom(token: string, payload: { code: string; name: string; color?: string }) {
   return request<RoomSnapshot>('/api/rooms/join', { method: 'POST', body: JSON.stringify(payload) }, token)
 }
 
@@ -127,16 +129,52 @@ export function startRoom(token: string, code: string) {
   return request<RoomSnapshot>(`/api/rooms/${code}/start`, { method: 'POST' }, token)
 }
 
-export function rollRoom(token: string, code: string) {
-  return request<RoomSnapshot>(`/api/rooms/${code}/roll`, { method: 'POST' }, token)
-}
-
-export function moveRoom(token: string, code: string, tokenId: string) {
+export function pickRoom(token: string, code: string, packetId: number) {
   return request<RoomSnapshot>(
-    `/api/rooms/${code}/move`,
-    { method: 'POST', body: JSON.stringify({ tokenId }) },
+    `/api/rooms/${code}/pick`,
+    { method: 'POST', body: JSON.stringify({ packetId }) },
     token,
   )
+}
+
+export function betRoom(token: string, code: string, amount: number) {
+  return request<RoomSnapshot>(
+    `/api/rooms/${code}/bet`,
+    { method: 'POST', body: JSON.stringify({ amount }) },
+    token,
+  )
+}
+
+export function peekRoom(token: string, code: string) {
+  return request<RoomSnapshot>(`/api/rooms/${code}/peek`, { method: 'POST' }, token)
+}
+
+export function coverRoom(token: string, code: string) {
+  return request<RoomSnapshot>(`/api/rooms/${code}/cover`, { method: 'POST' }, token)
+}
+
+export function nextRoom(token: string, code: string) {
+  return request<RoomSnapshot>(`/api/rooms/${code}/next`, { method: 'POST' }, token)
+}
+
+export function rebuyRoom(token: string, code: string) {
+  return request<RoomSnapshot>(`/api/rooms/${code}/rebuy`, { method: 'POST' }, token)
+}
+
+export function offerRoom(token: string, code: string, amount: number) {
+  return request<RoomSnapshot>(
+    `/api/rooms/${code}/offer`,
+    { method: 'POST', body: JSON.stringify({ amount }) },
+    token,
+  )
+}
+
+export function buyRoom(token: string, code: string) {
+  return request<RoomSnapshot>(`/api/rooms/${code}/buy`, { method: 'POST' }, token)
+}
+
+export function keepChefRoom(token: string, code: string) {
+  return request<RoomSnapshot>(`/api/rooms/${code}/keep`, { method: 'POST' }, token)
 }
 
 export function leaveRoom(token: string, code: string) {

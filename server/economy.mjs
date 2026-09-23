@@ -8,6 +8,8 @@ export const MIN_UNIT = 0.25
 export const WITHDRAW_TIERS_USD = [0.25, 0.5, 1, 2, 5, 10, 20]
 export const STAKE_UNITS = [0.25, 0.5, 1, 2, 5, 10, 20]
 export const STAKES = STAKE_UNITS.map((unit) => Math.round(unit * LUDO_PER_USD))
+export const TABLE_UNIT = 3.5
+export const TABLE_STAKE = Math.round(TABLE_UNIT * LUDO_PER_USD)
 
 export const PACKS = [
   { id: 'flexy', name: 'Flexy', usd: 0.25, tag: null },
@@ -45,7 +47,7 @@ export function formatLudo(value) {
 }
 
 export function isAllowedStake(value) {
-  return STAKES.includes(Number(value))
+  return Number(value) === TABLE_STAKE || STAKES.includes(Number(value))
 }
 
 export function rakeOf(pot) {
