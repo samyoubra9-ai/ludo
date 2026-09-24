@@ -1,4 +1,4 @@
-import { formatLudo, rakeOf, winnerPayout } from '../ludo/wallet'
+import { formatLudo, ludoFromUnit, rakeOf, TABLE_MIN_BET, winnerPayout } from '../ludo/wallet'
 import { PAQUET_COLORS, PAQUET_PALETTE, type PaquetColor } from './palette'
 
 export type Suit = 'spades' | 'hearts' | 'diamonds' | 'clubs'
@@ -131,7 +131,7 @@ function blankPlayer(partial: Partial<PaquetPlayer> & Pick<PaquetPlayer, 'color'
 }
 
 export function minBet(state: PaquetState) {
-  return Math.max(1, state.stake)
+  return Math.max(1, Math.min(TABLE_MIN_BET, state.stake || TABLE_MIN_BET))
 }
 
 export function botStack(stake: number) {
@@ -161,7 +161,8 @@ export function aceEaters(log: DuelLog[] | undefined) {
 
 export function salePrices(state: PaquetState) {
   const min = minBet(state)
-  return [...new Set([min, min * 2, min * 5, min * 10])].filter((n) => n > 0)
+  const buyin = Math.max(min, state.stake || min)
+  return [...new Set([min * 2, ludoFromUnit(1), ludoFromUnit(2), buyin])].filter((n) => n >= min)
 }
 
 export function clampBet(state: PaquetState, color: PaquetColor, amount: number) {
@@ -408,7 +409,7 @@ export function betOptions(state: PaquetState, color: PaquetColor) {
   const min = minBet(state)
   const max = who.coins
   if (max < min) return []
-  const opts = [min, min * 2, min * 5].filter((n) => n <= max)
+  const opts = [min, min * 2, ludoFromUnit(1), ludoFromUnit(2)].filter((n) => n >= min && n <= max)
   if (!opts.includes(max)) opts.push(max)
   return [...new Set(opts)]
 }

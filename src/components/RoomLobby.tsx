@@ -37,7 +37,9 @@ export function RoomLobby({
   onLeave: () => void
 }) {
   const match = room.kind === 'match'
-  const canStart = room.status === 'lobby' && (room.humans ?? 0) >= 1
+  const humans = room.seats.filter((seat) => seat.kind === 'human')
+  const waiters = room.waiting ?? []
+  const canStart = room.status === 'lobby' && humans.length >= 2
   const urls = room.urls?.length ? room.urls : []
   const [copied, setCopied] = useState('')
   const [toast, setToast] = useState<{ text: string; tone: 'in' | 'out' } | null>(null)
@@ -119,7 +121,16 @@ export function RoomLobby({
           {toast.text}
         </p>
       ) : null}
-      <header className="lobby__wallet">
+      <header className="lobby__wallet lobby__wallet--room">
+        <button type="button" className="hud-leave" onClick={() => setAskLeave(true)}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M10 5v2H6v10h4v2H4V5h6zm3.8 3.2 1.4-1.4L21 12l-5.8 5.2-1.4-1.4 2.7-2.3H10v-2h6.5l-2.7-2.3z"
+            />
+          </svg>
+          <span>Quitter</span>
+        </button>
         <AudioToggle />
       </header>
       <header className="logo">
@@ -147,10 +158,10 @@ export function RoomLobby({
           {match
             ? counting
               ? 'Table complète. Ça commence.'
-              : `Entrée ${formatLudo(room.stake)}. Une personne lance. Les places vides : ordis.`
+              : `Entrée ${formatLudo(room.stake)}. Tu mises dès 0,25 Ł. À deux on lance.`
             : copied === 'code'
               ? 'Code copié.'
-              : 'Partage le code. Une personne lance. Les autres jouent au prochain coup.'}
+              : 'Partage le code. À deux on lance. Les autres s’assoient au prochain coup.'}
         </p>
       </header>
 
@@ -162,7 +173,13 @@ export function RoomLobby({
           {waiting}/{room.count} autour de la table · entrée {formatLudo(room.stake)}
         </p>
         {match ? (
-          <p className="match-wait">{counting ? 'Tout le monde est là' : 'Recherche de joueurs…'}</p>
+          <p className="match-wait">
+            {counting
+              ? 'Tout le monde est là'
+              : humans.length < 2
+                ? 'Encore un joueur pour lancer'
+                : `${humans.length} à table · on peut lancer`}
+          </p>
         ) : null}
         {!match && isHost && urls.length ? (
           urls.map((url) => (
@@ -182,48 +199,48 @@ export function RoomLobby({
         ) : null}
         {error && <p className="bank-note">{error}</p>}
 
-          <ul className={`room-seats ${room.count === 8 ? 'room-seats--oct' : ''}`}>
-          {room.seats.map((seat) => {
-            const inSeat = seat.kind === 'human' || seat.kind === 'bot'
+          <ul className="room-seats room-seats--live">
+          {humans.map((seat) => {
             const status =
               seat.color === room.you
                 ? 'Toi'
-                : seat.kind === 'bot'
-                  ? 'Bot'
-                  : seat.kind === 'human'
-                    ? seat.botPlay
-                      ? 'Hors ligne · bot'
-                      : seat.online === false
-                        ? 'Hors ligne'
-                        : 'En ligne'
-                    : match
-                      ? 'En recherche'
-                      : 'Place libre'
+                : seat.botPlay
+                  ? 'Hors ligne'
+                  : seat.online === false
+                    ? 'Hors ligne'
+                    : 'En ligne'
             return (
               <li
                 key={seat.color}
-                className={`room-seat ${inSeat ? 'is-in' : 'is-wait'} ${pop === seat.color ? 'is-pop' : ''}`}
+                className={`room-seat is-in ${pop === seat.color ? 'is-pop' : ''}`}
               >
                 <span className="room-seat__pawn" style={{ background: seatTone(seat.color).hex }}>
-                  {inSeat ? seat.name.slice(0, 1).toUpperCase() : '·'}
+                  {seat.name.slice(0, 1).toUpperCase()}
                 </span>
                 <div>
-                  <strong>{inSeat ? seat.name : seatTone(seat.color).name}</strong>
+                  <strong>{seat.name}</strong>
                   <small>{status}</small>
                 </div>
-                {seat.kind === 'human' && seat.online !== false && !seat.botPlay ? (
-                  <em className="room-seat__live">Live</em>
-                ) : null}
+                {seat.online !== false && !seat.botPlay ? <em className="room-seat__live">Live</em> : null}
               </li>
             )
           })}
+          {waiters.map((person) => (
+            <li key={person.address} className="room-seat is-wait">
+              <span className="room-seat__pawn">·</span>
+              <div>
+                <strong>{person.name}</strong>
+                <small>Attend le prochain coup</small>
+              </div>
+            </li>
+          ))}
         </ul>
 
         <button type="button" className={`btn-play ${canStart ? 'is-ready' : ''}`} disabled={!canStart || busy} onClick={onStart}>
-          {busy ? 'Lancement…' : canStart ? 'Lancer la partie' : 'Un instant…'}
+          {busy ? 'Lancement…' : canStart ? 'Lancer la partie' : 'Encore un joueur'}
         </button>
         <p className="field__hint wait-note">
-          N’importe qui à table peut lancer. Un arrivant attend la fin du coup, puis s’assoit.
+          Que des joueurs réels. À deux on lance. Qui arrive après attend la fin du coup, puis s’assoit.
         </p>
 
         <button type="button" className="btn-ghost room-leave" onClick={() => setAskLeave(true)}>

@@ -10,6 +10,7 @@ export const STAKE_UNITS = [0.25, 0.5, 1, 2, 5, 10, 20]
 export const STAKES = STAKE_UNITS.map((unit) => Math.round(unit * LUDO_PER_USD))
 export const TABLE_UNIT = 3.5
 export const TABLE_STAKE = Math.round(TABLE_UNIT * LUDO_PER_USD)
+export const TABLE_MIN_BET = Math.round(MIN_UNIT * LUDO_PER_USD)
 
 export const PACKS = [
   { id: 'flexy', name: 'Flexy', usd: 0.25, tag: null },

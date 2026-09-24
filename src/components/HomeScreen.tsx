@@ -172,7 +172,7 @@ export function HomeScreen({
         <h1 aria-label="Petit paquet">
           <span className="c-yellow">Petit paquet</span>
         </h1>
-        <p className="hero__line">Une table. 8 places. Le chef jusqu’à l’as.</p>
+        <p className="hero__line">Une table. Joueurs réels. À deux on lance.</p>
       </header>
 
       <form
@@ -235,13 +235,15 @@ export function HomeScreen({
           />
         </label>
 
-        <p className="play-pot play-pot--free">Table de 8 · à l’aveugle · le chef aligne</p>
+        <p className="play-pot play-pot--free">
+          {mode === 'solo' ? '8 paquets · vs ordi' : 'Joueurs réels seulement · à deux on lance'}
+        </p>
 
         {needsStake ? (
           <p className="play-pot">
-            Entrée {formatLudo(TABLE_STAKE)}. Tu poses ça sur la table
-            {extra > 0 ? ` · ${formatLudo(extra)} restent en poche` : ''}. Une personne lance.
-            Les autres s’assoient au prochain coup.
+            Il faut {formatLudo(TABLE_STAKE)} pour s’asseoir
+            {extra > 0 ? ` · ${formatLudo(extra)} restent en poche` : ''}.
+            En jeu tu mises ce que tu veux, dès 0,25 Ł. À deux on lance.
           </p>
         ) : (
           <p className="play-pot play-pot--free">Entraînement · le solde ne bouge pas</p>

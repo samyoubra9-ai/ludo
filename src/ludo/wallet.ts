@@ -5,6 +5,7 @@ export const STAKE_UNITS = [0.25, 0.5, 1, 2, 5, 10, 20] as const
 export const STAKES = [58, 115, 230, 460, 1150, 2300, 4600] as const
 export const TABLE_UNIT = 3.5
 export const TABLE_STAKE = 805
+export const TABLE_MIN_BET = 58
 export type Stake = number
 export const MIN_STAKE = TABLE_STAKE
 export const DEFAULT_STAKE = TABLE_STAKE

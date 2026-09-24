@@ -399,7 +399,10 @@ export default function App() {
             you: seatColor,
             notice: room.watching
               ? 'Tu regardes. Tu t’assois au prochain coup.'
-              : room.notice,
+              : room.notice ||
+                (room.waiting?.length
+                  ? `${room.waiting.map((w) => w.name).join(', ')} attend${room.waiting.length > 1 ? 'ent' : ''} le prochain coup.`
+                  : null),
             pocket: room.coins ?? coins,
             watching: Boolean(room.watching),
             onPick: (packetId) => {

@@ -4,7 +4,6 @@ import {
   betOptions,
   cardLabel,
   chefOf,
-  clampBet,
   coverCurrent,
   freePackets,
   handDelta,
@@ -33,7 +32,7 @@ import {
   type PaquetPlayer,
   type PaquetState,
 } from '../paquet/engine'
-import { formatLudo, formatStakeUnit, formatUnit, GAME_ASSET, ludoFromUnit, unitFromLudo } from '../ludo/wallet'
+import { formatLudo, formatUnit, GAME_ASSET } from '../ludo/wallet'
 import { playSfx } from '../audio/sfx'
 import { AudioToggle } from './AudioToggle'
 import { Coins } from './Coins'
@@ -41,15 +40,15 @@ import { PaquetBoard } from './PaquetBoard'
 import { PAQUET_PALETTE } from '../paquet/palette'
 
 const AUTO_MS: Partial<Record<PaquetState['phase'], number>> = {
-  elect: 2000,
-  named: 2800,
+  elect: 6200,
+  named: 5200,
   pick: 340,
   bet: 480,
   peek: 700,
   cover: 900,
-  duel: 1450,
+  duel: 1700,
   runoff: 380,
-  claim: 2600,
+  claim: 3600,
 }
 
 export function PaquetScreen({
@@ -114,9 +113,13 @@ export function PaquetScreen({
     if (!delay) return
     if ((local.phase === 'pick' || local.phase === 'bet' || local.phase === 'runoff') && actorOf(local)?.isHuman) return
     if ((local.phase === 'peek' || local.phase === 'cover') && chefOf(local)?.isHuman) return
+    const openingDeal =
+      (local.phase === 'pick' || local.phase === 'runoff') &&
+      local.packets.length > 0 &&
+      local.packets.every((p) => !p.takenBy)
     const wait = window.setTimeout(() => {
       setLocal((cur) => stepAuto(cur))
-    }, delay)
+    }, openingDeal ? Math.max(delay, 2400) : delay)
     return () => window.clearTimeout(wait)
   }, [remote, local])
 
@@ -221,22 +224,28 @@ export function PaquetScreen({
       </div>
 
       <header className="hud-top">
-        <div className="hud-top__tools">
-          <button type="button" className="btn-ghost" onClick={leave}>
-            {over || recap ? 'Sortir' : 'Quitter'}
-          </button>
-          <AudioToggle />
-        </div>
+        <button type="button" className="hud-leave" onClick={leave}>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              fill="currentColor"
+              d="M10 5v2H6v10h4v2H4V5h6zm3.8 3.2 1.4-1.4L21 12l-5.8 5.2-1.4-1.4 2.7-2.3H10v-2h6.5l-2.7-2.3z"
+            />
+          </svg>
+          <span>{over || recap ? 'Sortir' : 'Quitter'}</span>
+        </button>
         <ChefBadge chef={chef} heir={heirOf(game)} you={self} phase={game.phase} />
-        <div className="hud-bank">
-          <Coins value={watching ? pocket : you.coins} label={watching ? 'poche' : game.paid ? 'table' : undefined} />
-          {game.paid && remote ? (
-            <small className="hud-pocket">poche {formatLudo(pocket)}</small>
-          ) : null}
+        <div className="hud-end">
+          <div className="hud-bank">
+            <Coins value={watching ? pocket : you.coins} label={watching ? 'poche' : game.paid ? 'table' : undefined} />
+            {game.paid && remote ? (
+              <small className="hud-pocket">poche {formatLudo(pocket)}</small>
+            ) : null}
+          </div>
+          <AudioToggle />
         </div>
       </header>
 
-      <div className="hud-rail" aria-label="Joueurs">
+      <div className={`hud-rail hud-rail--${game.players.length}`} aria-label="Joueurs">
         {game.players.map((player) => (
           <RailSeat
             key={player.color}
@@ -267,18 +276,9 @@ export function PaquetScreen({
       {watching ? <p className="net-banner">Tu joues au prochain coup. Regarde la table.</p> : null}
 
       {!recap && !over ? (
-        <footer className="hud-dock">
+        <footer className={`hud-dock ${canBet || canPeek || canCover || canRebuy || needPocket ? 'is-act' : 'is-wait'}`}>
           <p className="hud-dock__msg">{dockMessage(game, you, yourTurn, canPick, actor, vs)}</p>
-          {canPick ? (
-            <div className="hud-chips" aria-label="Paquets libres">
-              {selectable.map((id) => (
-                <button key={id} type="button" className="hud-chip" onClick={() => choose(id)}>
-                  {id + 1}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          {canBet ? <BetPad game={game} you={you} quick={bets} onBet={wager} /> : null}
+          {canBet ? <BetPad quick={bets} onBet={wager} /> : null}
           {canPeek ? (
             <button type="button" className="hud-chip is-main" onClick={look}>
               Voir ma carte
@@ -286,7 +286,7 @@ export function PaquetScreen({
           ) : null}
           {canCover && vs ? (
             <button type="button" className="hud-chip is-main" onClick={follow}>
-              Suivre {vs.name} · {formatLudo(vs.bet)}
+              Suivre · {formatLudo(vs.bet)}
             </button>
           ) : null}
           {canRebuy ? (
@@ -294,9 +294,7 @@ export function PaquetScreen({
               {rebuyBusy ? 'Ajout…' : `Ajouter ${formatLudo(game.stake)}`}
             </button>
           ) : null}
-          {needPocket ? (
-            <p className="hud-dock__msg">Plus de jetons. Recharge ta poche à la caisse.</p>
-          ) : null}
+          {needPocket ? <p className="hud-dock__hint">Plus de jetons. Passe à la caisse.</p> : null}
         </footer>
       ) : null}
 
@@ -306,7 +304,6 @@ export function PaquetScreen({
           you={you}
           watching={watching}
           onNext={nextHand}
-          onLeave={confirmLeave}
           canRebuy={canRebuy}
           rebuyBusy={rebuyBusy}
           onRebuy={addChips}
@@ -370,7 +367,6 @@ function RecapCard({
   you,
   watching,
   onNext,
-  onLeave,
   canRebuy,
   rebuyBusy,
   onRebuy,
@@ -382,7 +378,6 @@ function RecapCard({
   you: PaquetPlayer
   watching?: boolean
   onNext: () => void
-  onLeave: () => void
   canRebuy?: boolean
   rebuyBusy?: boolean
   onRebuy?: () => void
@@ -396,6 +391,7 @@ function RecapCard({
   const yours = handDelta(you)
   const asTaken = aceEaters(game.log)
   const isChef = chef?.color === you.color
+  const [sellOpen, setSellOpen] = useState(false)
   const prices = salePrices(game)
   const canBuy = Boolean(game.offer && !isChef && !watching && you.coins >= game.offer)
   const title = chef
@@ -449,8 +445,8 @@ function RecapCard({
                 >
                   <i style={{ background: PAQUET_PALETTE[player.color].hex }} />
                   <span>
-                    {player.color === you.color ? 'Toi' : player.name}
-                    {player.color === chef?.color ? <em>Chef</em> : null}
+                    {player.color === you.color ? <em className="recap-row__you">Toi</em> : player.name}
+                    {player.color === chef?.color ? <em className="recap-row__chef">Chef</em> : null}
                   </span>
                   <b>{formatDelta(delta)}</b>
                   <small>{formatLudo(player.coins)}</small>
@@ -468,16 +464,14 @@ function RecapCard({
           </div>
         </div>
 
-        {!watching ? (
+        {!watching && (isChef || game.offer) ? (
           <div className="recap-sale">
-            <p className="recap-sale__label">
-              {game.offer
-                ? `Chef à vendre · ${formatLudo(game.offer)}`
-                : isChef
-                  ? 'Tu peux vendre le chef'
-                  : 'Le chef peut vendre son rôle'}
-            </p>
-            {isChef && !game.offer ? (
+            {isChef && !game.offer && !sellOpen ? (
+              <button type="button" className="btn-ghost btn-ghost--wide" onClick={() => setSellOpen(true)}>
+                Vendre le chef
+              </button>
+            ) : null}
+            {isChef && !game.offer && sellOpen ? (
               <div className="hud-chips" aria-label="Prix du chef">
                 {prices.map((price) => (
                   <button key={price} type="button" className="hud-chip" onClick={() => onOffer(price)}>
@@ -488,7 +482,7 @@ function RecapCard({
             ) : null}
             {isChef && game.offer ? (
               <button type="button" className="btn-ghost btn-ghost--wide" onClick={onKeep}>
-                Garder le chef
+                Garder · {formatLudo(game.offer)}
               </button>
             ) : null}
             {canBuy ? (
@@ -497,7 +491,7 @@ function RecapCard({
               </button>
             ) : null}
             {game.offer && !isChef && !canBuy ? (
-              <p className="recap-sale__wait">Pas assez sur la table pour acheter.</p>
+              <p className="recap-sale__wait">Chef à {formatLudo(game.offer)}. Pas assez sur la table.</p>
             ) : null}
           </div>
         ) : null}
@@ -515,9 +509,6 @@ function RecapCard({
           ) : (
             <p className="field__hint">Tu t’assois au prochain coup.</p>
           )}
-          <button type="button" className="btn-ghost btn-ghost--wide" onClick={onLeave}>
-            Quitter
-          </button>
         </div>
       </div>
     </div>
@@ -563,88 +554,25 @@ function formatDelta(n: number) {
   return '—'
 }
 
-function parseUnit(raw: string) {
-  const n = Number(raw.trim().replace(/\s/g, '').replace(',', '.'))
-  return Number.isFinite(n) ? n : null
-}
-
-function BetPad({
-  game,
-  you,
-  quick,
-  onBet,
-}: {
-  game: PaquetState
-  you: PaquetPlayer
-  quick: number[]
-  onBet: (amount: number) => void
-}) {
-  const min = minBet(game)
-  const max = you.coins
-  const [draft, setDraft] = useState(() => min)
-  const [typed, setTyped] = useState<string | null>(null)
-
-  const apply = (amount: number) => {
-    setDraft(clampBet(game, you.color, amount))
-    setTyped(null)
-  }
-
-  const fromText = (raw: string) => {
-    const unit = parseUnit(raw)
-    if (unit == null) return
-    apply(ludoFromUnit(unit))
-  }
-
-  const shown = typed ?? formatStakeUnit(unitFromLudo(draft))
-  const canSend = draft >= min && draft <= max
-
+function BetPad({ quick, onBet }: { quick: number[]; onBet: (amount: number) => void }) {
+  const max = quick[quick.length - 1] ?? 0
+  const min = quick[0] ?? 0
+  const chips = quick.length > 4 ? [...quick.slice(0, 3), max] : quick
   return (
-    <div className="bet-pad">
-      <div className="hud-chips" aria-label="Mises rapides">
-        {quick.map((amount) => (
+    <div className="bet-pad" aria-label="Mise">
+      {chips.map((amount) => {
+        const allIn = amount === max && amount !== min
+        return (
           <button
             key={amount}
             type="button"
-            className={`hud-chip ${amount === max ? 'is-all' : amount === min ? 'is-main' : ''} ${
-              amount === draft && typed == null ? 'is-on' : ''
-            }`}
-            onClick={() => apply(amount)}
+            className={`hud-chip ${amount === min ? 'is-main' : ''} ${allIn ? 'is-all' : ''}`}
+            onClick={() => onBet(amount)}
           >
-            {amount === max && amount !== min ? `Tapis ${formatUnit(amount)}` : formatLudo(amount)}
+            {allIn ? 'Tapis' : formatLudo(amount)}
           </button>
-        ))}
-      </div>
-      <div className="bet-well">
-        <button type="button" className="bet-step" aria-label="Baisser" onClick={() => apply(draft - min)}>
-          −
-        </button>
-        <label className="bet-amount">
-          <input
-            inputMode="decimal"
-            enterKeyHint="done"
-            autoComplete="off"
-            aria-label="Mise"
-            value={shown}
-            onChange={(e) => setTyped(e.target.value)}
-            onBlur={() => {
-              if (typed != null) fromText(typed)
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                if (typed != null) fromText(typed)
-              }
-            }}
-          />
-          <span>{GAME_ASSET}</span>
-        </label>
-        <button type="button" className="bet-step" aria-label="Monter" onClick={() => apply(draft + min)}>
-          +
-        </button>
-      </div>
-      <button type="button" className="hud-chip is-main bet-go" disabled={!canSend} onClick={() => onBet(draft)}>
-        Miser {formatLudo(draft)}
-      </button>
+        )
+      })}
     </div>
   )
 }
@@ -680,7 +608,7 @@ function ChefBadge({
   return (
     <div className={`chef-badge ${chef.color === you ? 'is-you' : ''} ${phase === 'named' ? 'is-named' : ''}`}>
       <span className="chef-badge__mark">Chef</span>
-      <strong>{chef.name}</strong>
+      <strong>{chef.color === you ? 'Toi' : chef.name}</strong>
       {phase === 'named' && chef.electCard ? <em>{cardLabel(chef.electCard)}</em> : null}
       {chef.color === you && phase !== 'named' ? <em>c’est toi</em> : null}
       {pass && heir ? (
@@ -717,6 +645,13 @@ function RailSeat({
       } ${player.settled && !isChef ? 'is-out' : ''} ${player.bet > 0 ? 'has-bet' : ''}`}
     >
       <i style={{ background: tone.hex }} />
+      {player.color === you && isChef ? (
+        <em className="rail-seat__you">Toi · Chef</em>
+      ) : player.color === you ? (
+        <em className="rail-seat__you">Toi</em>
+      ) : isChef ? (
+        <em className="rail-seat__chef">Chef</em>
+      ) : null}
       <span>{player.color === you ? 'Toi' : player.name}</span>
       <b>
         {elect && player.electCard
@@ -754,16 +689,16 @@ function dockMessage(
   if (game.phase === 'runoff' && yourTurn) return 'Barrage. Prends un paquet. La plus haute est chef.'
   if (game.phase === 'runoff' && actor) return `${actor.name} choisit. Barrage à l’as.`
   if (game.phase === 'claim') return chef ? `${chef.name} prend le chef.` : game.message
-  if (canPick) return 'Prends un paquet. Tu ne vois rien.'
+  if (canPick) return 'Touche un paquet'
   if (game.phase === 'pick' && isChef) return 'Ils choisissent. Toi, le dernier.'
-  if (game.phase === 'pick' && actor) return `${actor.name} choisit.`
-  if (game.phase === 'bet' && yourTurn) return 'Mise ce que tu veux. À l’aveugle.'
+  if (game.phase === 'pick' && actor) return `${actor.name} choisit`
+  if (game.phase === 'bet' && yourTurn) return 'Ta mise'
   if (game.phase === 'bet' && isChef) return 'Ils misent. Tu suis après.'
-  if (game.phase === 'bet' && actor) return `${actor.name} mise.`
-  if (game.phase === 'peek' && yourTurn) return 'Regarde ta carte. Toi seul.'
-  if (game.phase === 'peek' && chef) return `${chef.name} regarde. Lui seul.`
-  if (game.phase === 'cover' && yourTurn && vs) return `Aligne ${vs.name}. On continue.`
-  if (game.phase === 'cover' && vs) return `${chef?.name ?? 'Chef'} reste chef · ${vs.name}.`
+  if (game.phase === 'bet' && actor) return `${actor.name} mise`
+  if (game.phase === 'peek' && yourTurn) return 'Ta carte. Toi seul.'
+  if (game.phase === 'peek' && chef) return `${chef.name} regarde`
+  if (game.phase === 'cover' && yourTurn && vs) return `Suivre ${vs.name}`
+  if (game.phase === 'cover' && vs) return `${chef?.name ?? 'Chef'} vs ${vs.name}`
   if (game.phase === 'duel') return 'On compare.'
   return game.message
 }

@@ -13,7 +13,6 @@ import {
 } from './redis.mjs'
 import {
   PAQUET_COLORS,
-  botStack,
   coverCurrent,
   createPaquetFromPlayers,
   endTable,
@@ -146,7 +145,7 @@ export async function snapshot(room, address, opts = {}) {
   const coins = opts.skipWallet ? undefined : address ? (await getWallet(address))?.coins : undefined
   const botsFor = room.seats.filter((s) => s.kind === 'human' && s.botPlay && !s.forfeited).map((s) => s.name)
   let notice = botsFor.length
-    ? `${botsFor.join(', ')} hors ligne — un bot joue pour ${botsFor.length > 1 ? 'eux' : 'lui'}.`
+    ? `${botsFor.join(', ')} hors ligne — la table continue.`
     : null
   if (room.status === 'playing' && room.forfeitWinAt) {
     const secs = Math.max(1, Math.ceil((room.forfeitWinAt - Date.now()) / 1000))
@@ -459,37 +458,32 @@ export async function leaveRoom({ code, address }) {
   })
 }
 
-const BOT_NAMES = ['Karim', 'Yanis', 'Sofia', 'Nour', 'Mehdi', 'Lina', 'Riad']
+function liveHumans(room) {
+  return room.seats.filter((s) => s.kind === 'human' && s.address && !s.forfeited)
+}
 
-function fillBots(room) {
-  let bot = 0
-  room.seats = room.seats.map((seat) => {
-    if (seat.kind !== 'empty') return seat
-    const name = BOT_NAMES[bot] || `Bot ${bot + 1}`
-    bot += 1
-    return {
-      color: seat.color,
-      name,
-      address: null,
-      kind: 'bot',
-      lastSeen: 0,
-      botPlay: false,
-      forfeited: false,
-      quitAt: 0,
-    }
-  })
+function pruneGamePlayers(room) {
+  if (!room.game) return
+  const colors = new Set(liveHumans(room).map((s) => s.color))
+  const players = room.game.players.filter((p) => colors.has(p.color))
+  const chef = players.some((p) => p.color === room.game.chef) ? room.game.chef : null
+  room.game = { ...room.game, players, chef }
 }
 
 async function admitWaiters(room) {
   if (!room?.game || room.status !== 'playing') return
+  pruneGamePlayers(room)
   const queue = [...(room.waiting || [])]
   room.waiting = []
   for (const waiter of queue) {
+    if ((room.game.players?.length ?? 0) >= 8) {
+      room.waiting.push(waiter)
+      continue
+    }
     const wallet = await getWallet(waiter.address)
     if (!wallet || wallet.coins < room.stake) continue
-    const open = (s) => s.kind === 'bot' || s.kind === 'empty' || (s.kind === 'human' && s.forfeited)
-    const free =
-      room.seats.find((s) => open(s) && s.color !== room.game?.chef) || room.seats.find((s) => open(s))
+    const taken = new Set(room.game.players.map((p) => p.color))
+    const free = room.seats.find((s) => !taken.has(s.color) && (s.kind === 'empty' || s.forfeited || s.kind === 'bot'))
     if (!free) {
       room.waiting.push(waiter)
       continue
@@ -500,23 +494,22 @@ async function admitWaiters(room) {
     room.seats = room.seats.map((s) => (s.color === free.color ? seated : s))
     room.game = {
       ...room.game,
-      players: room.game.players.map((p) =>
-        p.color === free.color
-          ? {
-              ...p,
-              name: seated.name,
-              isHuman: true,
-              coins: room.stake,
-              packet: null,
-              bet: 0,
-              electCard: null,
-              peeked: false,
-              settled: false,
-              bank: room.stake,
-              out: false,
-            }
-          : p,
-      ),
+      players: [
+        ...room.game.players,
+        {
+          color: seated.color,
+          name: seated.name,
+          isHuman: true,
+          coins: room.stake,
+          packet: null,
+          bet: 0,
+          electCard: null,
+          peeked: false,
+          settled: false,
+          bank: room.stake,
+          out: false,
+        },
+      ],
       message: `${seated.name} s’assoit. Il joue ce coup.`,
     }
   }
@@ -535,23 +528,23 @@ async function kickBrokeHumans(room) {
   }
 }
 
-async function launchGame(room, { fillEmpty = true } = {}) {
-  if (fillEmpty) fillBots(room)
-  for (const seat of room.seats) {
-    if (seat.kind !== 'human' || !seat.address) continue
+async function launchGame(room) {
+  const humanSeats = liveHumans(room)
+  if (humanSeats.length < 2) {
+    throw Object.assign(new Error('Il faut deux joueurs pour lancer.'), { status: 400 })
+  }
+  for (const seat of humanSeats) {
     if (((await getWallet(seat.address))?.coins ?? 0) < room.stake) {
       throw Object.assign(new Error(`${seat.name} n’a plus assez de Ł.`), { status: 400 })
     }
   }
 
   const matchId = randomBytes(16).toString('hex')
-  const humanSeats = room.seats.filter((s) => s.kind === 'human' && s.address)
-
-  const players = room.seats.map((seat) => ({
+  const players = humanSeats.map((seat) => ({
     color: seat.color,
     name: seat.name,
-    isHuman: seat.kind === 'human',
-    coins: seat.kind === 'human' ? room.stake : botStack(room.stake),
+    isHuman: true,
+    coins: room.stake,
   }))
 
   for (const seat of humanSeats) {
@@ -592,7 +585,7 @@ async function maybeAutoStart(room) {
   }
   if (now < room.startAt) return false
   try {
-    await launchGame(room, { fillEmpty: false })
+    await launchGame(room)
     return true
   } catch (error) {
     console.error(error)
@@ -608,7 +601,7 @@ function handToBot(room, seat) {
   room.game = {
     ...room.game,
     players: room.game.players.map((p) => (p.color === seat.color ? { ...p, isHuman: false } : p)),
-    message: `${seat.name} a perdu la connexion. Un bot joue pour lui.`,
+    message: `${seat.name} a perdu la connexion. La table continue.`,
   }
   return true
 }
@@ -734,8 +727,15 @@ function armPaquetBots(room) {
   room.botDueAt = 0
   const game = room.game
   if (!isPaquetGame(game) || room.status !== 'playing' || isOver(game) || room.forfeitWinAt) return
-  const wait = { elect: 2000, named: 2800, pick: 380, bet: 520, peek: 750, cover: 900, duel: 1450, runoff: 420, claim: 2600 }[game.phase]
+  let wait = { elect: 6200, named: 5200, pick: 380, bet: 520, peek: 750, cover: 900, duel: 1700, runoff: 420, claim: 3600 }[game.phase]
   if (!wait) return
+  if (
+    (game.phase === 'pick' || game.phase === 'runoff') &&
+    game.packets?.length &&
+    game.packets.every((p) => !p.takenBy)
+  ) {
+    wait = Math.max(wait, 2400)
+  }
   if (game.phase === 'pick' || game.phase === 'bet' || game.phase === 'runoff') {
     const actor = game.players.find((p) => p.color === game.actor)
     if (actor?.isHuman) return
@@ -848,6 +848,11 @@ export async function roomNext({ code, address }) {
     if (isLeaving(seat)) throw Object.assign(new Error('Tu as quitté. Reviens avant la fin du délai.'), { status: 403 })
     if (room.forfeitWinAt) throw Object.assign(new Error('En attente de forfait.'), { status: 400 })
     await admitWaiters(room)
+    if ((room.game.players?.length ?? 0) < 2) {
+      room.game = { ...room.game, message: 'On attend un autre joueur.' }
+      await persist(room)
+      return room
+    }
     await playAction(room, (game) => startNextHand(game), 'Le coup n’est pas fini.')
     await persist(room)
     return room
@@ -899,7 +904,10 @@ export async function startRoom({ code, address }) {
     if (!room.seats.some((s) => s.address === address && s.kind === 'human')) {
       throw Object.assign(new Error('Il faut 3,50 Ł pour lancer.'), { status: 400 })
     }
-    await launchGame(room, { fillEmpty: true })
+    if (humanCount(room) < 2) {
+      throw Object.assign(new Error('Encore un joueur. À deux on lance.'), { status: 400 })
+    }
+    await launchGame(room)
     await persist(room)
     return room
   })

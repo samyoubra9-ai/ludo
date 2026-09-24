@@ -122,15 +122,23 @@ export class PaquetScene extends Phaser.Scene {
     const w = Math.max(this.scale.width, 280)
     const h = Math.max(this.scale.height, 420)
     const portrait = h >= w
-    const padT = Math.max(118, h * 0.16)
-    const padB = Math.max(86, h * 0.11)
+    const phone = w < 520
+    const short = h < 720
+    const padT = portrait
+      ? Math.max(phone ? 78 : 108, h * (short ? 0.12 : 0.14))
+      : Math.max(88, h * 0.12)
+    const padB = portrait
+      ? Math.max(phone ? 92 : 100, h * (short ? 0.13 : 0.12))
+      : Math.max(76, h * 0.1)
     const cx = w / 2
     const cy = padT + (h - padT - padB) / 2
     const innerW = w
     const innerH = h - padT - padB
-    const tableRx = portrait ? innerW * 0.492 : Math.min(innerW * 0.46, innerH * 0.72)
-    const tableRy = portrait ? innerH * 0.5 : innerH * 0.48
-    const zoom = Phaser.Math.Clamp(Math.min(w / 390, h / 760) * 0.9, 0.78, 1.06)
+    const tableRx = portrait ? innerW * (phone ? 0.455 : 0.48) : Math.min(innerW * 0.46, innerH * 0.72)
+    const tableRy = portrait ? innerH * (phone ? 0.455 : 0.48) : innerH * 0.48
+    const zoom = Phaser.Math.Clamp(Math.min(w / 390, h / 760) * (phone ? 0.84 : 0.9), 0.68, 1.06)
+    const n = this.pending?.state.players.length ?? 8
+    const few = n <= 3
     return {
       w,
       h,
@@ -138,12 +146,12 @@ export class PaquetScene extends Phaser.Scene {
       cy,
       tableRx,
       tableRy,
-      seatRx: tableRx * 0.86,
-      seatRy: tableRy * 0.84,
-      packRx: Math.min(tableRx * 0.4, 96 * zoom),
-      packRy: Math.min(tableRy * 0.28, 78 * zoom),
+      seatRx: tableRx * (few ? 0.78 : 0.86),
+      seatRy: tableRy * (few ? 0.76 : 0.84),
+      packRx: Math.min(tableRx * (few ? 0.28 : 0.4), (few ? 72 : 96) * zoom),
+      packRy: Math.min(tableRy * (few ? 0.22 : 0.28), (few ? 60 : 78) * zoom),
       zoom,
-      seatScale: Phaser.Math.Clamp((Math.min(w, h) / 520) * 0.95, 0.7, 1.05),
+      seatScale: Phaser.Math.Clamp((Math.min(w, h) / 520) * (phone ? 1.05 : 0.95), few ? 0.82 : 0.68, 1.12),
     }
   }
 
@@ -224,9 +232,16 @@ export class PaquetScene extends Phaser.Scene {
         if (typeof obj.name === 'string' && (obj.name.startsWith('elect-') || obj.name.startsWith('chip-'))) obj.destroy()
       })
     }
+    const live = new Set(state.players.map((p) => p.color))
+    this.children.getAll().forEach((obj) => {
+      if (typeof obj.name !== 'string') return
+      if (obj.name.startsWith('seat-') && !live.has(obj.name.slice(5) as PaquetColor)) obj.destroy()
+      if (obj.name.startsWith('elect-') && !live.has(obj.name.slice(6) as PaquetColor)) obj.destroy()
+      if (obj.name.startsWith('chip-') && !live.has(obj.name.slice(5) as PaquetColor)) obj.destroy()
+    })
     this.drawSeats(state, you)
     this.drawElect(state)
-    this.drawPackets(state, selectable)
+    this.drawPackets(state, selectable, you)
     this.drawBets(state)
     const fight = state.phase === 'cover' || state.phase === 'duel'
     const named = state.phase === 'named'
@@ -260,8 +275,8 @@ export class PaquetScene extends Phaser.Scene {
             targets: this.hintText,
             scale: 1,
             alpha: 1,
-            duration: 720,
-            delay: 220,
+            duration: 900,
+            delay: 640,
             ease: 'Cubic.out',
           })
         }
@@ -304,14 +319,30 @@ export class PaquetScene extends Phaser.Scene {
     state.players.forEach((player, i) => {
       const key = `seat-${player.color}`
       let node = this.children.getByName(key) as Phaser.GameObjects.Container | null
-      const pos = oval(i, 8, box.cx, box.cy, box.seatRx, box.seatRy)
+      if (node && !node.getByName('halo')) {
+        node.destroy()
+        node = null
+      }
+      const pos = oval(i, Math.max(state.players.length, 2), box.cx, box.cy, box.seatRx, box.seatRy)
       const tone = PAQUET_PALETTE[player.color]
       if (!node) {
         node = this.add.container(pos.x, pos.y).setName(key).setDepth(14)
+        const halo = this.add.circle(0, 0, 42, 0xffe08a, 0).setName('halo')
         const shadow = this.add.ellipse(0, 18, 52, 16, 0x000000, 0.28)
         const disc = this.add.circle(0, 0, 30, tint(tone.hex)).setName('disc')
-        disc.setStrokeStyle(3, state.chef === player.color ? 0xffe7a3 : player.color === you ? 0xf4e7c8 : tint(tone.deep), 1)
+        const ring = this.add.circle(0, 0, 30).setName('ring').setFillStyle(0x000000, 0)
         const ny = nameLift(pos.a)
+        const youMark = this.add
+          .text(0, -44, 'TOI', {
+            fontFamily: 'Nunito, system-ui, sans-serif',
+            fontSize: '11px',
+            color: '#0b1220',
+            fontStyle: '800',
+            backgroundColor: '#f4e7c8',
+          })
+          .setOrigin(0.5)
+          .setPadding(6, 2, 6, 2)
+          .setName('you')
         const crown = this.add
           .text(0, ny - 22, 'CHEF', {
             fontFamily: 'Nunito, system-ui, sans-serif',
@@ -321,9 +352,9 @@ export class PaquetScene extends Phaser.Scene {
             backgroundColor: '#f0c400',
           })
           .setOrigin(0.5)
-          .setPadding(5, 2, 5, 2)
+          .setPadding(6, 2, 6, 2)
           .setName('crown')
-        const plate = this.add.rectangle(0, ny, 108, 36, 0x0b1220, 0.92).setStrokeStyle(1, 0xffffff, 0.14).setName('plate')
+        const plate = this.add.rectangle(0, ny, 112, 38, 0x0b1220, 0.92).setStrokeStyle(1, 0xffffff, 0.14).setName('plate')
         const letter = this.add
           .text(0, -1, player.name.slice(0, 1).toUpperCase(), {
             fontFamily: 'Nunito, system-ui, sans-serif',
@@ -350,7 +381,7 @@ export class PaquetScene extends Phaser.Scene {
           })
           .setOrigin(0.5)
           .setName('tag')
-        node.add([shadow, disc, crown, plate, letter, label, tag])
+        node.add([halo, shadow, disc, ring, youMark, crown, plate, letter, label, tag])
       } else {
         node.setPosition(pos.x, pos.y)
         const ny = nameLift(pos.a)
@@ -367,13 +398,39 @@ export class PaquetScene extends Phaser.Scene {
         crown?.setPosition(0, ny - 22)
         const disc = node.getByName('disc') as Phaser.GameObjects.Arc | null
         disc?.setStrokeStyle(3, state.chef === player.color ? 0xffe7a3 : player.color === you ? 0xf4e7c8 : tint(tone.deep), 1)
+        const youMark = node.getByName('you') as Phaser.GameObjects.Text | null
+        youMark?.setPosition(0, ny - 40)
       }
-      node.setDepth(14)
+      const mine = player.color === you
+      const isChef = state.chef === player.color
+      node.setDepth(mine || isChef ? 16 : 14)
       const crown = node.getByName('crown') as Phaser.GameObjects.Text | null
       const plate = node.getByName('plate') as Phaser.GameObjects.Rectangle | null
       const tag = node.getByName('tag') as Phaser.GameObjects.Text | null
-      crown?.setVisible(state.chef === player.color)
-      plate?.setStrokeStyle(1.5, state.chef === player.color ? 0xe6c97a : player.color === you ? 0xf4e7c8 : 0xffffff, state.chef === player.color || player.color === you ? 0.85 : 0.16)
+      const youMark = node.getByName('you') as Phaser.GameObjects.Text | null
+      const halo = node.getByName('halo') as Phaser.GameObjects.Arc | null
+      const ring = node.getByName('ring') as Phaser.GameObjects.Arc | null
+      const ny = nameLift(pos.a)
+      if (mine && isChef) {
+        youMark?.setText('TOI · CHEF').setBackgroundColor('#f0c400').setColor('#3a2a00').setVisible(true)
+        youMark?.setPosition(0, ny - 28)
+        crown?.setVisible(false)
+      } else if (mine) {
+        youMark?.setText('TOI').setBackgroundColor('#f4e7c8').setColor('#0b1220').setVisible(true)
+        youMark?.setPosition(0, ny - 28)
+        crown?.setVisible(false)
+      } else if (isChef) {
+        youMark?.setVisible(false)
+        crown?.setVisible(true).setPosition(0, ny - 28)
+      } else {
+        youMark?.setVisible(false)
+        crown?.setVisible(false)
+      }
+      plate?.setStrokeStyle(2, isChef ? 0xe6c97a : mine ? 0xf4e7c8 : 0xffffff, isChef || mine ? 0.95 : 0.14)
+      halo?.setFillStyle(isChef ? 0xffe08a : mine ? 0xf4e7c8 : 0x000000, isChef || mine ? 0.28 : 0)
+      ring
+        ?.setStrokeStyle(isChef || mine ? 4 : 2, isChef ? 0xffe7a3 : mine ? 0xf4e7c8 : tint(tone.deep), isChef || mine ? 1 : 0.35)
+        .setScale(isChef || mine ? 1.12 : 1)
       if (tag) {
         const eaten = player.settled && state.chef !== player.color
         tag.setColor(
@@ -395,13 +452,30 @@ export class PaquetScene extends Phaser.Scene {
                   : '',
         )
       }
-      node.setScale(box.seatScale)
+      node.setScale(box.seatScale * (mine || isChef ? 1.08 : 1))
       const fight = state.phase === 'cover' || state.phase === 'duel'
       const hot = player.color === state.chef || player.color === state.challenger
       const eaten = player.settled && state.chef !== player.color
-      node.setAlpha(fight && !hot && player.color !== you ? 0.22 : eaten ? 0.38 : 1)
+      node.setAlpha(fight && !hot && !mine ? 0.22 : eaten ? 0.38 : 1)
       const disc = node.getByName('disc') as Phaser.GameObjects.Arc | null
       if (disc) disc.setScale(fight && hot ? 1.12 : 1)
+      const haloKey = `pp-halo-${player.color}`
+      if ((mine || isChef) && halo && this.registry.get(haloKey) !== `${state.hand}-on`) {
+        this.registry.set(haloKey, `${state.hand}-on`)
+        this.tweens.killTweensOf(halo)
+        this.tweens.add({
+          targets: halo,
+          alpha: { from: 0.16, to: 0.4 },
+          scale: { from: 0.94, to: 1.16 },
+          yoyo: true,
+          duration: 980,
+          repeat: -1,
+        })
+      } else if (!mine && !isChef && halo) {
+        this.tweens.killTweensOf(halo)
+        this.registry.set(haloKey, '')
+        halo.setAlpha(0)
+      }
       if (state.chef === player.color && this.registry.get('pp-chef') !== `${state.hand}-${state.chef}`) {
         this.registry.set('pp-chef', `${state.hand}-${state.chef}`)
         this.tweens.add({
@@ -440,13 +514,13 @@ export class PaquetScene extends Phaser.Scene {
             targets: existing,
             alpha: 0,
             scale: existing.scale * 0.72,
-            duration: 280,
+            duration: 480,
             onComplete: () => existing.destroy(),
           })
         }
         return
       }
-      const pos = oval(i, 8, box.cx, box.cy, box.seatRx, box.seatRy)
+      const pos = oval(i, Math.max(state.players.length, 2), box.cx, box.cy, box.seatRx, box.seatRy)
       const place = along(pos, -46 * this.zoom)
       const winner = state.phase === 'named' && state.chef === player.color
       const dest = winner ? along(pos, -78 * this.zoom) : place
@@ -486,8 +560,9 @@ export class PaquetScene extends Phaser.Scene {
             targets: existing,
             x: dest.x,
             y: dest.y,
-            scale: this.zoom * 1.32,
-            duration: 780,
+            scale: this.zoom * 1.38,
+            duration: 1180,
+            delay: 380,
             ease: 'Cubic.out',
           })
           this.tweens.add({
@@ -495,15 +570,16 @@ export class PaquetScene extends Phaser.Scene {
             alpha: { from: 0.16, to: 0.48 },
             scale: { from: 0.88, to: 1.2 },
             yoyo: true,
-            duration: 700,
+            duration: 860,
+            delay: 380,
             repeat: -1,
           })
           this.tweens.add({
             targets: stamp,
             alpha: 1,
             y: CARD_H * 0.38,
-            duration: 420,
-            delay: 280,
+            duration: 560,
+            delay: 820,
             ease: 'Back.out',
           })
           existing.setDepth(16)
@@ -514,7 +590,8 @@ export class PaquetScene extends Phaser.Scene {
             y: dest.y + 10,
             alpha: 0.26,
             scale: this.zoom * 0.82,
-            duration: 560,
+            duration: 920,
+            delay: 220,
             ease: 'Cubic.out',
           })
           existing.setDepth(5)
@@ -557,15 +634,15 @@ export class PaquetScene extends Phaser.Scene {
         y: place.y,
         scale: this.zoom,
         rotation: 0,
-        duration: 520,
-        delay: i * 60,
+        duration: 780,
+        delay: 320 + i * 420,
         ease: 'Cubic.out',
         onStart: () => playSfx('join'),
       })
     })
   }
 
-  private drawPackets(state: PaquetState, selectable: number[]) {
+  private drawPackets(state: PaquetState, selectable: number[], you: PaquetColor) {
     const box = this.layoutBox
     if (!box) return
     if (!state.packets.length) {
@@ -574,13 +651,14 @@ export class PaquetScene extends Phaser.Scene {
     }
     const canPick = new Set(selectable)
     const z = this.zoom
+    const packN = Math.max(state.packets.length, 1)
+    const seatN = Math.max(state.players.length, 2)
     state.packets.forEach((packet, i) => {
       let node = this.packets.get(packet.id)
-      const n = Math.max(state.packets.length, 1)
-      const home = oval(i, n, box.cx, box.cy - 4, box.packRx * (n <= 5 ? 1.15 : 1), box.packRy * (n <= 5 ? 1.08 : 1))
+      const home = oval(i, packN, box.cx, box.cy - 4, box.packRx * (packN <= 5 ? 1.15 : 1), box.packRy * (packN <= 5 ? 1.08 : 1))
       const owner = state.players.find((p) => p.color === packet.takenBy)
       const ownerIndex = owner ? state.players.findIndex((p) => p.color === owner.color) : -1
-      const seat = ownerIndex >= 0 ? oval(ownerIndex, 8, box.cx, box.cy, box.seatRx, box.seatRy) : home
+      const seat = ownerIndex >= 0 ? oval(ownerIndex, seatN, box.cx, box.cy, box.seatRx, box.seatRy) : home
       const fight = state.phase === 'cover' || state.phase === 'duel'
       const hot = Boolean(
         fight && owner && (owner.color === state.chef || owner.color === state.challenger),
@@ -598,14 +676,15 @@ export class PaquetScene extends Phaser.Scene {
           this.registry.set('pp-riffle', state.hand)
           playSfx('roll')
         }
-        node = this.makePacket(packet.id, home.x, home.y)
+        node = this.makePacket(packet.id, box.cx, box.cy)
+        node.setScale(0.2)
+        node.setData('deal', true)
         this.packets.set(packet.id, node)
-        playSfx('join', 90 + i * 36)
       }
       node.setVisible(true)
       node.setDepth((hot ? 18 : owner ? 8 : 3) + dest.y / 90 + i * 0.02)
       if (packet.card && !this.flipped.has(packet.id)) {
-        this.flip(node, packet.card, this.flipped.size * 42)
+        this.flip(node, packet.card, this.flipped.size * 180)
         this.flipped.add(packet.id)
       }
       if (state.lastDuel && packet.takenBy === state.lastDuel.winner && !node.getData('glowed')) {
@@ -621,20 +700,81 @@ export class PaquetScene extends Phaser.Scene {
       if (wager) wager.setText('')
       const num = node.getByName('num') as Phaser.GameObjects.Text | null
       num?.setVisible(!owner && !packet.card)
-      node.setData('live', canPick.has(packet.id))
+      let rim = node.getByName('rim') as Phaser.GameObjects.Arc | null
+      if (!rim) {
+        rim = this.add.circle(0, 0, 46).setName('rim').setFillStyle(0x000000, 0)
+        node.addAt(rim, 0)
+      }
+      let own = node.getByName('own') as Phaser.GameObjects.Text | null
+      if (!own) {
+        own = this.add
+          .text(0, -CARD_H * 0.52, '', {
+            fontFamily: 'Nunito, system-ui, sans-serif',
+            fontSize: '10px',
+            color: '#0b1220',
+            fontStyle: '800',
+            backgroundColor: '#f4e7c8',
+          })
+          .setOrigin(0.5)
+          .setPadding(5, 2, 5, 2)
+          .setName('own')
+        node.add(own)
+      }
+      const mine = owner?.color === you
+      const chefPack = Boolean(owner && owner.color === state.chef)
+      rim.setStrokeStyle(mine || chefPack ? 3.5 : 0, chefPack ? 0xffe36a : 0xf4e7c8, mine || chefPack ? 1 : 0)
+      if (mine && chefPack) {
+        own.setText('TOI · CHEF').setBackgroundColor('#f0c400').setColor('#3a2a00').setVisible(true)
+      } else if (mine) {
+        own.setText('TOI').setBackgroundColor('#f4e7c8').setColor('#0b1220').setVisible(true)
+      } else if (chefPack) {
+        own.setText('CHEF').setBackgroundColor('#f0c400').setColor('#3a2a00').setVisible(true)
+      } else {
+        own.setVisible(false)
+      }
+      const live = canPick.has(packet.id)
+      node.setData('live', live)
       node.setAlpha(fight ? (hot ? 1 : owner ? 0.22 : 0.12) : owner?.settled && owner.color !== state.chef ? 0.42 : 1)
-      if (!node.getData('flipping')) node.setScale(hot ? z * 1.22 : z)
+      if (!node.getData('flipping') && !node.getData('deal')) node.setScale(hot ? z * 1.22 : z)
+      const pulseKey = `pp-pick-${packet.id}`
+      if (live) {
+        rim.setStrokeStyle(3, 0xffe36a, 0.95)
+        if (this.registry.get(pulseKey) !== `${state.hand}-on`) {
+          this.registry.set(pulseKey, `${state.hand}-on`)
+          this.tweens.killTweensOf(rim)
+          this.tweens.add({
+            targets: rim,
+            alpha: { from: 0.35, to: 1 },
+            scale: { from: 0.92, to: 1.12 },
+            yoyo: true,
+            duration: 720,
+            repeat: -1,
+          })
+        }
+      } else if (this.registry.get(pulseKey) === `${state.hand}-on`) {
+        this.tweens.killTweensOf(rim)
+        this.registry.set(pulseKey, '')
+        rim.setScale(1)
+        if (!mine && !chefPack) rim.setStrokeStyle(0, 0x000000, 0)
+      }
       const last = node.getData('dest') as { x: number; y: number } | undefined
       if (!last || Math.abs(last.x - dest.x) > 1 || Math.abs(last.y - dest.y) > 1) {
+        const dealing = node.getData('deal') === true
+        if (dealing) node.setData('deal', false)
         node.setData('dest', dest)
-        if (hot) playSfx('hop', owner?.color === state.chef ? 0 : 50)
-        else if (owner) playSfx('hop')
         this.tweens.add({
           targets: node,
           x: dest.x,
           y: dest.y,
-          duration: hot ? 480 : owner ? 420 : 160,
+          ...(dealing ? { scale: z } : {}),
+          duration: dealing ? 760 : hot ? 520 : owner ? 480 : 240,
+          delay: dealing ? 200 + i * 220 : 0,
           ease: 'Cubic.out',
+          onStart: () => {
+            if (dealing) playSfx('join')
+            else if (hot) playSfx('hop', owner?.color === state.chef ? 0 : 50)
+            else if (owner) playSfx('hop')
+          },
           onComplete: () => {
             if (hot) playSfx('land', owner?.color === state.chef ? 0 : 45)
           },
@@ -659,7 +799,7 @@ export class PaquetScene extends Phaser.Scene {
       const packet = state.packets.find((p) => p.takenBy === player.color)
       const packNode = packet ? this.packets.get(packet.id) : undefined
       const dest = packNode?.getData('dest') as { x: number; y: number } | undefined
-      const seat = oval(i, 8, box.cx, box.cy, box.seatRx, box.seatRy)
+      const seat = oval(i, Math.max(state.players.length, 2), box.cx, box.cy, box.seatRx, box.seatRy)
       const home = dest ?? along(seat, -44 * z)
       const place = {
         x: home.x + Math.cos(seat.a) * -26 * z,
@@ -782,7 +922,8 @@ export class PaquetScene extends Phaser.Scene {
     this.tweens.add({
       targets: node,
       scaleX: 0,
-      duration: 150,
+      duration: 220,
+      delay,
       onComplete: () => {
         ;(['back-0', 'back-1', 'back-2', 'num'] as const).forEach((name) => {
           const child = node.getByName(name) as Phaser.GameObjects.Image | Phaser.GameObjects.Text | null
@@ -797,7 +938,7 @@ export class PaquetScene extends Phaser.Scene {
           targets: node,
           scaleX: keep,
           scaleY: keep,
-          duration: 180,
+          duration: 260,
           ease: 'Back.out',
           onComplete: () => node.setData('flipping', false),
         })

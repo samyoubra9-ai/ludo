@@ -1,4 +1,4 @@
-import { formatLudo, rakeOf, winnerPayout } from './economy.mjs'
+import { formatLudo, ludoFromUnit, rakeOf, TABLE_MIN_BET, winnerPayout } from './economy.mjs'
 
 export const PAQUET_COLORS = ['crimson', 'amber', 'lime', 'teal', 'azure', 'violet', 'rose', 'sand']
 
@@ -58,7 +58,7 @@ function blankPlayer(partial) {
 }
 
 export function minBet(state) {
-  return Math.max(1, state.stake)
+  return Math.max(1, Math.min(TABLE_MIN_BET, state.stake || TABLE_MIN_BET))
 }
 
 export function botStack(stake) {
@@ -88,7 +88,8 @@ export function aceEaters(log) {
 
 export function salePrices(state) {
   const min = minBet(state)
-  return [...new Set([min, min * 2, min * 5, min * 10])].filter((n) => n > 0)
+  const buyin = Math.max(min, state.stake || min)
+  return [...new Set([min * 2, ludoFromUnit(1), ludoFromUnit(2), buyin])].filter((n) => n >= min)
 }
 
 export function clampBet(state, color, amount) {
@@ -316,7 +317,7 @@ export function betOptions(state, color) {
   const min = minBet(state)
   const max = who.coins
   if (max < min) return []
-  const opts = [min, min * 2, min * 5].filter((n) => n <= max)
+  const opts = [min, min * 2, ludoFromUnit(1), ludoFromUnit(2)].filter((n) => n >= min && n <= max)
   if (!opts.includes(max)) opts.push(max)
   return [...new Set(opts)]
 }
